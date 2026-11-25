@@ -11,8 +11,6 @@ export const imageMessages = defineMessages({
     metadataNotice: '撮影情報などの付帯情報を含みます。保存すると取り除かれます',
     gifNotice: 'アニメーション GIF は最初のコマだけを書き出します',
 
-    stepEdit: '編集',
-    stepOutput: '出力',
     rotateLeft: '左に 90° 回転',
     rotateRight: '右に 90° 回転',
     flipH: '左右反転',
@@ -52,18 +50,15 @@ export const imageMessages = defineMessages({
     targetCustom: 'KB で指定',
     targetHint: '収まる範囲でいちばん高い画質を探します（上の画質が上限）。',
 
-    stepEstimate: '出力の見込み',
     outputResolution: '出力サイズ',
     outputQuality: '使う画質',
     estimateError: '書き出せませんでした',
     targetFits: '目標サイズに収まります',
     targetTooBig: (size: string) => `画質を最低にしても ${size} を超えます。サイズ変更で小さくしてください`,
-    resetEdits: '編集をすべて取り消す',
 
     before: '編集前',
     after: '編集後',
     copyAsPng: 'PNG でコピー',
-    copyAsPngTitle: 'いまの編集結果を PNG にしてクリップボードへ（⌘C）',
     cropOverlay: '切り抜き範囲',
   },
   en: {
@@ -75,8 +70,6 @@ export const imageMessages = defineMessages({
     metadataNotice: 'Contains metadata such as camera details. It is removed when you save',
     gifNotice: 'Animated GIFs are saved as their first frame only',
 
-    stepEdit: 'Edit',
-    stepOutput: 'Output',
     rotateLeft: 'Rotate 90° left',
     rotateRight: 'Rotate 90° right',
     flipH: 'Flip horizontally',
@@ -116,18 +109,15 @@ export const imageMessages = defineMessages({
     targetCustom: 'Size in KB',
     targetHint: 'Finds the highest quality that fits (the quality above is the ceiling).',
 
-    stepEstimate: 'Estimate',
     outputResolution: 'Output size',
     outputQuality: 'Quality used',
     estimateError: 'Could not export',
     targetFits: 'Fits the target size',
     targetTooBig: (size: string) => `Still over ${size} at the lowest quality. Resize the image to make it smaller`,
-    resetEdits: 'Undo all edits',
 
     before: 'Before',
     after: 'After',
     copyAsPng: 'Copy as PNG',
-    copyAsPngTitle: 'Copy the current result to the clipboard as PNG (⌘C)',
     cropOverlay: 'Crop area',
   },
 })

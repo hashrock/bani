@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import fc from 'fast-check'
-import { clampQuality, outputImageFilename, searchQualityForTarget } from './output'
+import { clampQuality, defaultImageFormat, outputImageFilename, searchQualityForTarget } from './output'
 import serviceLimits from '../../serviceLimits.json'
 
 /** 品質 → バイト数の表を持つ偽のエンコーダ。呼ばれた品質も記録する */
@@ -114,5 +114,19 @@ describe('outputImageFilename', () => {
     expect(outputImageFilename('archive.tar.png', 'webp')).toBe('archive.tar.webp')
     expect(outputImageFilename('noext', 'png')).toBe('noext.png')
     expect(outputImageFilename('.png', 'avif')).toBe('image.avif')
+  })
+})
+
+describe('defaultImageFormat', () => {
+  test('元と同じ形式を書き出せるならそれにする', () => {
+    expect(defaultImageFormat('image/png', ['png', 'jpeg', 'webp'])).toBe('png')
+    expect(defaultImageFormat('image/jpeg', ['png', 'jpeg', 'webp'])).toBe('jpeg')
+    expect(defaultImageFormat('image/WEBP', ['png', 'jpeg', 'webp'])).toBe('webp')
+  })
+
+  test('書き出せない形式は PNG にする', () => {
+    expect(defaultImageFormat('image/gif', ['png', 'jpeg', 'webp'])).toBe('png')
+    expect(defaultImageFormat('image/avif', ['png', 'jpeg', 'webp'])).toBe('png')
+    expect(defaultImageFormat('image/avif', ['png', 'avif'])).toBe('avif')
   })
 })

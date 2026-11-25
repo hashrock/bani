@@ -1,56 +1,11 @@
 import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/utils'
-
-/** 名前と値を左右に振り分けた 1 行（動画のサイドバーと同じ見た目） */
-export function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="truncate text-right tabular-nums">{children}</dd>
-    </div>
-  )
-}
-
-export function Facts({ className, children }: { className?: string; children: ReactNode }) {
-  return <dl className={cn('flex flex-col gap-1 text-xs', className)}>{children}</dl>
-}
 
 /** 手順の中の小見出し */
 export function FieldLabel({ children }: { children: ReactNode }) {
   return <div className="text-[11px] font-medium text-muted-foreground">{children}</div>
-}
-
-/** プリセットの押しボタン。手入力で外れることもあるので ToggleGroup ではなく押しボタンにする */
-export function Chip({
-  active,
-  onClick,
-  disabled,
-  title,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  disabled?: boolean
-  title?: string
-  children: ReactNode
-}) {
-  return (
-    <Button
-      variant={active ? 'default' : 'outline'}
-      size="xs"
-      className="rounded-full px-2.5 text-[11px]"
-      aria-pressed={active}
-      disabled={disabled}
-      title={title}
-      onClick={onClick}
-    >
-      {children}
-    </Button>
-  )
 }
 
 /**

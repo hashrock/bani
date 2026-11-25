@@ -34,6 +34,17 @@ export interface ImageOutput {
   targetBytes: number | null
 }
 
+/**
+ * 出力形式の既定。元と同じ形式を書き出せるならそれにする（PNG を開いて ⌘S なら劣化なしの上書きになる）。
+ * 書き出せない形式（GIF・BMP・HEIC など）なら、どこでも書き出せて劣化しない PNG にする
+ */
+export function defaultImageFormat(sourceMime: string, writable: readonly ImageFormat[]): ImageFormat {
+  const same = (Object.keys(IMAGE_FORMATS) as ImageFormat[]).find(
+    (format) => IMAGE_FORMATS[format].mime === sourceMime.toLowerCase()
+  )
+  return same && writable.includes(same) ? same : 'png'
+}
+
 export const MIN_QUALITY = 1
 export const MAX_QUALITY = 100
 
