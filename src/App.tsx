@@ -3,15 +3,16 @@ import { toast } from 'sonner'
 import './App.css'
 import { Toaster } from '@/components/ui/sonner'
 import { detectKindAsync, planIntake } from './app/intake'
-import { confirmDiscard, hasUnsaved, setUnsaved } from './app/leaveGuard'
-import { navigate, useRoute } from './app/router'
-import { parseHash } from './app/routes'
+import { confirmDiscard, hasUnsaved, setLeaveMessage, setUnsaved } from './app/leaveGuard'
+import { shellMessages } from './app/messages'
+import { currentRoute, navigate, subscribeRoute, useRoute } from './app/router'
 import type { MediaKind } from './app/routes'
 import { useFileDrop } from './app/useFileDrop'
 import { usePasteFiles } from './app/usePasteFiles'
 import type { OpenedFile } from './core/opened'
 import { useHotkey } from './core/useHotkey'
 import { useI18n } from './i18n/context'
+import { useLocalMessages } from './i18n/local'
 import { ConvertPage } from './pages/convert/ConvertPage'
 import { HubPage } from './pages/HubPage'
 import { MessagePage } from './pages/MessagePage'
@@ -36,24 +37,26 @@ interface Opened {
 
 function App() {
   const { t } = useI18n()
+  const shell = useLocalMessages(shellMessages)
   const route = useRoute()
+
+  // ブラウザの戻る・進むで離れるときの確認（router）は React の外で出すので、文言を先に渡しておく
+  useEffect(() => setLeaveMessage(shell.leaveConfirm), [shell])
   const [opened, setOpened] = useState<Opened>({ edit: null, editId: 0, convert: null })
 
   // 画面を離れたら、持っていたファイルも手放す。入口の「編集」「一括変換」やブラウザの戻るで
-  // 来たときに、前に開いていたファイルが生き返らないようにする（空の画面・新規の文書から始める）
-  useEffect(() => {
-    const onHashChange = () => {
-      const next = parseHash(window.location.hash)
+  // 来たときに、前に開いていたファイルが生き返らないようにする（空の画面・新規の文書から始める）。
+  // URL の hash ではなく確認を通った画面の移動を見る（戻るを断ったときにファイルを手放さない）
+  useEffect(() =>
+    subscribeRoute(() => {
+      const next = currentRoute()
       setOpened((prev) => {
         const keepEdit = prev.edit !== null && next.name === 'edit' && next.kind === prev.edit.kind
         const keepConvert = prev.convert !== null && next.name === 'convert'
         if ((keepEdit || prev.edit === null) && (keepConvert || prev.convert === null)) return prev
         return { ...prev, edit: keepEdit ? prev.edit : null, convert: keepConvert ? prev.convert : null }
       })
-    }
-    window.addEventListener('hashchange', onHashChange)
-    return () => window.removeEventListener('hashchange', onHashChange)
-  }, [])
+    }), [])
 
   /**
    * ドロップ・ファイル選択・貼り付けの入口。種類と数から開く画面を決める。
@@ -61,7 +64,7 @@ function App() {
    */
   const intake = useCallback(
     async (files: OpenedFile[], options: { reopen?: boolean } = {}) => {
-      const current = parseHash(window.location.hash)
+      const current = currentRoute()
       const onConvert = current.name === 'convert'
       const kinds = await Promise.all(files.map(({ file }) => detectKindAsync(file)))
       const plan = planIntake(kinds, onConvert ? CONVERT_ONLY : CAPABILITIES)

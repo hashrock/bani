@@ -31,4 +31,13 @@ pnpm lint
 pnpm build
 ```
 
+### Offline check
+
+`pnpm build` fails if any file in `dist/` is missing from the Service Worker's precache list (`pwa/plugin.ts`, tested in `pwa/plugin.test.ts`). Before a release, also check it in a real browser:
+
+1. `pnpm build && pnpm preview`, open the printed URL in Chrome and wait until DevTools → Application → Service Workers shows the worker as *activated*.
+2. DevTools → Network → set **Offline**, then reload. The hub must load, and the service switcher (top right) simply disappears.
+3. Still offline, open each editor from the hub (video, audio, image, PDF, text, archive) and batch conversion, drop a file and save it. The Network panel must show no failed requests from this origin (lazy chunks, workers and `.wasm` come from the Service Worker).
+4. Go back online, change something, rebuild and reload: the old version keeps running until every tab is closed, then the new one takes over.
+
 <img width="1069" height="851" alt="CleanShot 2025-11-26 at 18 42 17" src="https://github.com/user-attachments/assets/5f17ea4c-d46b-4e58-9dc3-154f37bc3f16" />

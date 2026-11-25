@@ -682,8 +682,11 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
           ) : (
             <>
               <div className="flex items-center gap-3 border-b bg-background px-4 py-2 text-xs">
-                <span className="font-medium tabular-nums">{m.selection(selected.length, pageCount)}</span>
-                <span className="truncate text-muted-foreground">{m.selectionHint}</span>
+                <span className="shrink-0 font-medium whitespace-nowrap tabular-nums">
+                  {m.selection(selected.length, pageCount)}
+                </span>
+                {/* 狭い画面（多くはタッチ）では Shift・⌘ の案内を省き、件数とボタンを 1 行に収める */}
+                <span className="min-w-0 truncate text-muted-foreground max-sm:hidden">{m.selectionHint}</span>
                 <div className="ml-auto flex shrink-0 gap-1">
                   <SmallButton
                     variant="ghost"

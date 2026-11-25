@@ -54,8 +54,9 @@ function Check({ state, disabled, label, onToggle }: {
 }
 
 // 行ごとに別の grid なので、列の幅はすべて固定にして行をまたいでそろえる
-const GRID_WITH_COMPRESSION = 'grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_3.5rem_9.5rem_7.5rem]'
-const GRID_PLAIN = 'grid-cols-[minmax(0,1fr)_5.5rem_9.5rem_3.5rem]'
+// 名前の列は狭い画面でも読める幅を残し、収まらない分は一覧ごと横にスクロールさせる
+const GRID_WITH_COMPRESSION = 'grid-cols-[minmax(8rem,1fr)_5.5rem_5.5rem_3.5rem_9.5rem_7.5rem]'
+const GRID_PLAIN = 'grid-cols-[minmax(8rem,1fr)_5.5rem_9.5rem_3.5rem]'
 
 /**
  * 圧縮ファイルの中身をフォルダの木で見せる一覧。開閉・チェックでの選択・キーボード操作を持つ。
@@ -172,10 +173,10 @@ export function EntryTree({
   const allState = states.get('') ?? 'none'
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col text-xs">
+    <div className="flex min-h-0 flex-1 flex-col overflow-x-auto text-xs">
       <div
         className={cn(
-          'grid items-center gap-3 border-b bg-background px-3 py-2 font-medium text-muted-foreground',
+          'grid min-w-fit items-center gap-3 border-b bg-background px-3 py-2 font-medium whitespace-nowrap text-muted-foreground',
           grid
         )}
       >
@@ -201,7 +202,7 @@ export function EntryTree({
         role="tree"
         aria-label={m.treeLabel}
         aria-multiselectable
-        className="min-h-0 flex-1 overflow-y-auto bg-background"
+        className="min-h-0 min-w-fit flex-1 overflow-y-auto bg-background"
         onKeyDown={handleKeyDown}
       >
         {rows.map((row, index) => {

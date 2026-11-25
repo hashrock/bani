@@ -8,6 +8,15 @@
     <meta name="theme-color" content="#ffffff" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bani</title>
+    <!-- 最初の描画の前に配色を決め、ダークのときに白く光らないようにする。
+         キーと判定は src/app/theme.ts と同じ（読み込んだ後はあちらが引き継ぐ） -->
+    <script>
+      try {
+        var pref = localStorage.getItem('bani.theme')
+        var dark = pref === 'dark' || (pref !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+        if (dark) document.documentElement.classList.add('dark')
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

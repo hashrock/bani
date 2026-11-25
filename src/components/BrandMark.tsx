@@ -1,20 +1,32 @@
+import { Monitor, Moon, Sun } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { solidOnClass } from '@/lib/styles'
 import { cn } from '@/lib/utils'
-import { confirmDiscard } from '../app/leaveGuard'
+import { confirmLeave } from '../app/leaveGuard'
+import { shellMessages } from '../app/messages'
 import { formatRoute } from '../app/routes'
+import { THEME_PREFERENCES, setThemePreference, useTheme } from '../app/theme'
+import type { ThemePreference } from '../app/theme'
 import { useI18n } from '../i18n/context'
+import { useLocalMessages } from '../i18n/local'
 import { LANGS } from '../i18n/messages'
 
 /** ロゴ。押すと入口の画面へ戻る。保存していない変更があれば先に確かめる */
 export function BrandMark() {
-  const { t } = useI18n()
   return (
     <a
       className="flex items-center gap-2 text-inherit no-underline"
       href={formatRoute({ name: 'hub' })}
       onClick={(event) => {
-        if (!confirmDiscard(t.discardConfirm)) event.preventDefault()
+        if (!confirmLeave()) event.preventDefault()
       }}
     >
       <span className="flex size-7 shrink-0 items-center">
@@ -60,13 +72,63 @@ export function LangSwitch({ className }: { className?: string }) {
   )
 }
 
+const THEME_ICON: Record<ThemePreference, typeof Sun> = { light: Sun, dark: Moon, system: Monitor }
+
+/** 配色の切り替え（ライト・ダーク・システムに合わせる）。ボタンには選んでいるものの絵を出す */
+export function ThemeSwitch() {
+  const shell = useLocalMessages(shellMessages)
+  const { preference } = useTheme()
+  const Icon = THEME_ICON[preference]
+  const label = `${shell.theme}: ${shell.themeLabel[preference]}`
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-xs" className="text-muted-foreground" title={label} aria-label={label}>
+          <Icon />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-auto whitespace-nowrap">
+        <DropdownMenuRadioGroup
+          value={preference}
+          onValueChange={(value) => {
+            const next = THEME_PREFERENCES.find((item) => item === value)
+            if (next) setThemePreference(next)
+          }}
+        >
+          {THEME_PREFERENCES.map((value) => {
+            const ItemIcon = THEME_ICON[value]
+            return (
+              <DropdownMenuRadioItem key={value} value={value}>
+                <ItemIcon />
+                {shell.themeLabel[value]}
+              </DropdownMenuRadioItem>
+            )
+          })}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 /**
  * hashrock のサービス切り替え（index.html が読み込む）。どの画面でも見出しの右端に置き、
- * 作業領域の上には何も浮かせない。アプリは常にライト配色（App.css）なので light でそろえる。
+ * 作業領域の上には何も浮かせない。配色は省くと OS に従うので、アプリで選んだ方を必ず渡す。
  * オフラインで読み込めなければ、中身のない要素として何も表示されない
  */
 export function ServiceSwitcher() {
-  return <hashrock-switcher theme="light" />
+  const { theme } = useTheme()
+  return <hashrock-switcher theme={theme} />
+}
+
+/** 見出しの右端の道具（言語・配色・サービスの切り替え）。サイドバーと入口で同じ並びにする */
+export function HeadTools() {
+  return (
+    <>
+      <LangSwitch className="ml-auto" />
+      <ThemeSwitch />
+      <ServiceSwitcher />
+    </>
+  )
 }
 
 /** サイドバー上端の見出し */
@@ -74,8 +136,7 @@ export function SidebarHead() {
   return (
     <div className="flex items-center gap-2 border-b px-4 py-3">
       <BrandMark />
-      <LangSwitch className="ml-auto" />
-      <ServiceSwitcher />
+      <HeadTools />
     </div>
   )
 }

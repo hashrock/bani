@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 
 /*
  * 保存していない変更の見張り。編集画面が「変更あり」を知らせ、
- * App はファイルを開き直す前・入口へ戻る前・タブを閉じる前にこれを見て確かめる。
+ * App はファイルを開き直す前・入口へ戻る前・ブラウザの戻る／進むの前（router）・タブを閉じる前にこれを見て確かめる。
  * 編集画面は一度に 1 つしか開かないので、アプリ全体で 1 つの値を持てば足りる。
  */
 let unsaved = false
@@ -20,6 +20,16 @@ export function confirmDiscard(message: string): boolean {
   unsaved = false
   return true
 }
+
+/** 画面を離れるときの文言。router は React の外で確かめるので、App が言語に合わせてここへ置く */
+let leaveMessage = ''
+
+export function setLeaveMessage(message: string): void {
+  leaveMessage = message
+}
+
+/** 画面を離れる前の確認（ロゴ・ブラウザの戻る／進む） */
+export const confirmLeave = (): boolean => confirmDiscard(leaveMessage)
 
 /** 編集画面から「変更あり」を知らせる。画面を閉じたら（作り直したら）変更なしに戻す */
 export function useReportUnsaved(dirty: boolean, report: (dirty: boolean) => void): void {
