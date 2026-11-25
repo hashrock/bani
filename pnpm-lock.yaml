@@ -11,6 +11,12 @@ importers:
 
   .:
     dependencies:
+      '@mediabunny/flac-encoder':
+        specifier: 1.52.3
+        version: 1.52.3(mediabunny@1.52.3)
+      '@mediabunny/mp3-encoder':
+        specifier: 1.52.3
+        version: 1.52.3(mediabunny@1.52.3)
       gif.js:
         specifier: ^0.2.0
         version: 0.2.0
@@ -219,6 +225,16 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@mediabunny/flac-encoder@1.52.3':
+    resolution: {integrity: sha512-Y8Y5wZis66ePYE0nsCp/6zyRJI9+ufuSoHKbT/UY+j7fYzNaeAe+ChcfJAlP9c1HqgWXRir1ki/0s8BRp3wbXw==}
+    peerDependencies:
+      mediabunny: ^1.0.0
+
+  '@mediabunny/mp3-encoder@1.52.3':
+    resolution: {integrity: sha512-UHPWuxRo8i1UPcdUPN5g4eI0CAozJ3uUgYWQYEkiUdt+4c2UAMIzN4c0hevqr83hXf6GAXx4egmPOikMj2NGzw==}
+    peerDependencies:
+      mediabunny: ^1.0.0
 
   '@napi-rs/wasm-runtime@1.2.2':
     resolution: {integrity: sha512-JfB4kuJQjaoHuCTseIINHtHWeJnvgEcxjwA5t/Y00ZgaOO1Crz3fjT/p8kT28zA/Caz7oiUMn3d6H2yOVCVwuw==}
@@ -1241,6 +1257,14 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@mediabunny/flac-encoder@1.52.3(mediabunny@1.52.3)':
+    dependencies:
+      mediabunny: 1.52.3
+
+  '@mediabunny/mp3-encoder@1.52.3(mediabunny@1.52.3)':
+    dependencies:
+      mediabunny: 1.52.3
 
   '@napi-rs/wasm-runtime@1.2.2(@emnapi/core@1.5.0)(@emnapi/runtime@1.5.0)':
     dependencies:
