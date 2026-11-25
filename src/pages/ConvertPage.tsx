@@ -1,9 +1,13 @@
-import { useRef } from 'react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { BatchStatus } from '../components/BatchStatus'
 import { SidebarHead } from '../components/BrandMark'
 import { FileUpload } from '../components/FileUpload'
 import { OutputSteps } from '../components/OutputSteps'
-import { Step } from '../components/Step'
+import { ResetSettingsButton, SourceName } from '../components/SidebarParts'
+import { Step, StepHint } from '../components/Step'
+import { pickFiles } from '../core/opened'
+import type { OpenedFile } from '../core/opened'
 import { useBatchConversion } from '../hooks/useBatchConversion'
 import { useI18n } from '../i18n/context'
 import type { ConversionSettings } from '../types'
@@ -15,7 +19,7 @@ interface ConvertPageProps {
   settings: ConversionSettings
   onSettingsChange: (settings: ConversionSettings) => void
   isDragging: boolean
-  onFiles: (files: File[]) => void
+  onFiles: (files: OpenedFile[]) => void
 }
 
 /** 複数のファイルを同じ設定でまとめて書き出す画面。編集はせず、常に全体を変換する */
@@ -28,7 +32,6 @@ export function ConvertPage({
 }: ConvertPageProps) {
   const { t } = useI18n()
   const batch = useBatchConversion(settings, files)
-  const inputRef = useRef<HTMLInputElement>(null)
   const count = batch.files.length
 
   return (
@@ -38,33 +41,24 @@ export function ConvertPage({
 
         <div className="sidebar-scroll">
           <Step index={1} title={t.stepInput}>
-            <input
-              ref={inputRef}
-              type="file"
-              accept="video/*"
-              multiple
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const selected = e.target.files
-                if (selected && selected.length > 0) onFiles(Array.from(selected))
-                e.target.value = ''
-              }}
-            />
             {count > 0 ? (
-              <div className="source">
-                <div className="source-name">{t.batchSelected(count)}</div>
-              </div>
+              <SourceName>{t.batchSelected(count)}</SourceName>
             ) : (
-              <p className="step-empty">{t.batchEmpty}</p>
+              <StepHint>{t.batchEmpty}</StepHint>
             )}
-            <div className="step-actions">
-              <button
-                className="ghost-btn"
-                onClick={() => inputRef.current?.click()}
+            <div className="flex gap-1.5">
+              <Button
+                variant="outline"
+                size="xs"
+                className="h-7 px-2.5"
+                onClick={async () => {
+                  const picked = await pickFiles({ multiple: true, accept: 'video/*' })
+                  if (picked.length > 0) onFiles(picked)
+                }}
                 disabled={batch.running}
               >
                 {count > 0 ? t.addFiles : t.selectFiles}
-              </button>
+              </Button>
             </div>
           </Step>
 
@@ -75,20 +69,18 @@ export function ConvertPage({
             dimensions={null}
           />
 
-          <button className="link-btn" onClick={() => onSettingsChange(DEFAULT_SETTINGS)}>
-            {t.resetSettings}
-          </button>
+          <ResetSettingsButton onClick={() => onSettingsChange(DEFAULT_SETTINGS)} />
         </div>
 
         <div className="sidebar-footer">
           {batch.running ? (
-            <button className="cancel-btn block" onClick={batch.cancel}>
+            <Button variant="destructive" className="w-full" onClick={batch.cancel}>
               {t.cancel}
-            </button>
+            </Button>
           ) : (
-            <button className="convert-btn block" onClick={batch.run} disabled={count === 0}>
+            <Button className="w-full" onClick={batch.run} disabled={count === 0}>
               {t.convertBatch(count)}
-            </button>
+            </Button>
           )}
         </div>
       </aside>
@@ -96,8 +88,17 @@ export function ConvertPage({
       <div className="workspace">
         <div className="stage">
           {count > 0 ? (
-            <div className={`batch-area ${isDragging ? 'dragging' : ''}`}>
-              {batch.error && <div className="batch-error">{batch.error}</div>}
+            <div
+              className={cn(
+                'flex-1 overflow-y-auto bg-background px-5 py-4',
+                isDragging && 'drop-target-active'
+              )}
+            >
+              {batch.error && (
+                <div className="mb-3 rounded-md border border-destructive px-3 py-2.5 text-[13px] text-destructive">
+                  {batch.error}
+                </div>
+              )}
               <BatchStatus files={batch.files} />
             </div>
           ) : (

@@ -1,31 +1,32 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useState } from 'react'
+import { toast } from 'sonner'
 import './App.css'
-import { detectKind, planIntake } from './app/intake'
-import type { Capabilities } from './app/intake'
+import { Toaster } from '@/components/ui/sonner'
+import { detectKindAsync, planIntake } from './app/intake'
 import { navigate, useRoute } from './app/router'
+import type { MediaKind } from './app/routes'
 import { useFileDrop } from './app/useFileDrop'
+import { usePasteFiles } from './app/usePasteFiles'
+import type { OpenedFile } from './core/opened'
 import { useI18n } from './i18n/context'
 import { ConvertPage } from './pages/ConvertPage'
 import { HubPage } from './pages/HubPage'
 import { MessagePage } from './pages/MessagePage'
-import { VideoEditPage } from './pages/VideoEditPage'
+import { CAPABILITIES, EDIT_PAGES } from './pages/registry'
 import type { ConversionSettings } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
-/** いま実装済みの画面が受け付ける種類。ロードマップに沿って増やす */
-const CAPABILITIES: Capabilities = {
-  edit: ['video'],
-  convert: ['video'],
-}
+/** 取り込みの通知は 1 件ずつ出し、新しい取り込みで前のものを置き換える */
+const INTAKE_TOAST_ID = 'intake'
 
 /**
  * 各画面に渡すファイル。画面は key で作り直すので、
- * ファイルを選び直すたびに番号を進めて前の状態（変換結果など）を残さない。
+ * ファイルを選び直すたびに番号を進めて前の状態（変換結果や編集の履歴）を残さない。
  */
 interface Opened {
-  editFile: File | null
+  edit: { file: OpenedFile; kind: MediaKind } | null
   editId: number
-  convertFiles: File[]
+  convert: OpenedFile[]
   convertId: number
 }
 
@@ -33,78 +34,67 @@ function App() {
   const { t } = useI18n()
   const route = useRoute()
   const [opened, setOpened] = useState<Opened>({
-    editFile: null,
+    edit: null,
     editId: 0,
-    convertFiles: [],
+    convert: [],
     convertId: 0,
   })
-  // 出力設定は画面を行き来しても残す
-  const [editSettings, setEditSettings] = useState<ConversionSettings>(DEFAULT_SETTINGS)
+  // 一括変換の出力設定は画面を行き来しても残す
   const [convertSettings, setConvertSettings] = useState<ConversionSettings>(DEFAULT_SETTINGS)
-  const [notice, setNotice] = useState('')
 
+  /** ドロップ・ファイル選択・貼り付けの入口。種類と数から開く画面を決める */
   const openFiles = useCallback(
-    (files: File[]) => {
-      const plan = planIntake(files.map(detectKind), CAPABILITIES)
+    async (files: OpenedFile[]) => {
+      const kinds = await Promise.all(files.map(({ file }) => detectKindAsync(file)))
+      const plan = planIntake(kinds, CAPABILITIES)
       if (!plan) {
-        setNotice(t.unsupportedFiles)
+        toast(t.unsupportedFiles, { id: INTAKE_TOAST_ID })
         return
       }
       const accepted = plan.accepted.map((index) => files[index])
+      const route = plan.route
       setOpened((prev) =>
-        plan.route.name === 'edit'
-          ? { ...prev, editFile: accepted[0], editId: prev.editId + 1 }
-          : { ...prev, convertFiles: accepted, convertId: prev.convertId + 1 }
+        route.name === 'edit'
+          ? { ...prev, edit: { file: accepted[0], kind: route.kind }, editId: prev.editId + 1 }
+          : { ...prev, convert: accepted, convertId: prev.convertId + 1 }
       )
-      setNotice(plan.rejected.length > 0 ? t.skippedFiles(plan.rejected.length) : '')
-      navigate(plan.route)
+      if (plan.rejected.length > 0) {
+        toast(t.skippedFiles(plan.rejected.length), { id: INTAKE_TOAST_ID })
+      } else {
+        toast.dismiss(INTAKE_TOAST_ID)
+      }
+      navigate(route)
     },
     [t]
   )
 
-  // 通知は読めるだけの間だけ出して、画面を移ったあとまで残さない
-  useEffect(() => {
-    if (!notice) return
-    const timer = window.setTimeout(() => setNotice(''), 5000)
-    return () => window.clearTimeout(timer)
-  }, [notice])
-
   const drop = useFileDrop(openFiles)
+  usePasteFiles(openFiles)
 
   const page = (() => {
     switch (route.name) {
       case 'hub':
         return (
-          <HubPage
-            capabilities={CAPABILITIES}
+          <HubPage capabilities={CAPABILITIES} isDragging={drop.isDragging} onFiles={openFiles} />
+        )
+      case 'edit': {
+        const EditPage = EDIT_PAGES[route.kind]
+        // 入口から別の種類の編集画面へ来たときは、前のファイルを持ち込まない
+        const file = opened.edit?.kind === route.kind ? opened.edit.file : null
+        return (
+          <EditPage
+            key={`${route.kind}-${opened.editId}`}
+            opened={file}
             isDragging={drop.isDragging}
             onFiles={openFiles}
           />
         )
-      case 'edit':
-        if (route.kind === 'video') {
-          return (
-            <VideoEditPage
-              key={opened.editId}
-              file={opened.editFile}
-              settings={editSettings}
-              setSettings={setEditSettings}
-              isDragging={drop.isDragging}
-              onFiles={openFiles}
-            />
-          )
-        }
-        return (
-          <MessagePage
-            title={t.comingSoonTitle(t.kindLabel[route.kind])}
-            body={t.comingSoonBody}
-          />
-        )
+      }
       case 'convert':
         return (
           <ConvertPage
             key={opened.convertId}
-            files={opened.convertFiles}
+            files={opened.convert.map(({ file }) => file)}
             settings={convertSettings}
             onSettingsChange={setConvertSettings}
             isDragging={drop.isDragging}
@@ -118,15 +108,14 @@ function App() {
 
   return (
     <div className="shell" {...drop.handlers}>
-      {page}
-      {notice && (
-        <div className="notice" role="status">
-          <span>{notice}</span>
-          <button className="notice-close" onClick={() => setNotice('')} aria-label={t.dismiss}>
-            ×
-          </button>
-        </div>
-      )}
+      <Suspense fallback={null}>{page}</Suspense>
+      {/* 通知は読めるだけの間だけ出して、画面を移ったあとまで残さない */}
+      <Toaster
+        position="bottom-center"
+        duration={5000}
+        closeButton
+        toastOptions={{ closeButtonAriaLabel: t.dismiss }}
+      />
     </div>
   )
 }

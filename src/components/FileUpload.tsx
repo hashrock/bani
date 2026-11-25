@@ -1,4 +1,7 @@
-import { useRef } from 'react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { pickFiles } from '../core/opened'
+import type { OpenedFile } from '../core/opened'
 
 interface FileUploadProps {
   isDragging: boolean
@@ -7,7 +10,7 @@ interface FileUploadProps {
   hint?: string
   accept?: string
   multiple?: boolean
-  onFiles: (files: File[]) => void
+  onFiles: (files: OpenedFile[]) => void
 }
 
 /**
@@ -23,31 +26,22 @@ export function FileUpload({
   multiple = false,
   onFiles,
 }: FileUploadProps) {
-  const inputRef = useRef<HTMLInputElement>(null)
-
   return (
-    <div className={`preview-area drop-zone ${isDragging ? 'dragging' : ''}`}>
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        multiple={multiple}
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          const selected = e.target.files
-          if (selected && selected.length > 0) onFiles(Array.from(selected))
-          e.target.value = ''
-        }}
-      />
+    <div className={cn('preview-area', isDragging && 'drop-target-active')}>
 
-      <div className="drop-content">
-        <div className="drop-message">{message}</div>
-        {hint && <p className="drop-hint">{hint}</p>}
-        <div className="drop-actions">
-          <button className="ghost-btn" onClick={() => inputRef.current?.click()}>
-            {buttonLabel}
-          </button>
-        </div>
+      <div className="flex flex-col items-center gap-4">
+        <div className="text-base text-muted-foreground">{message}</div>
+        {hint && (
+          <p className="max-w-[360px] text-center text-xs leading-relaxed text-muted-foreground">
+            {hint}
+          </p>
+        )}
+        <Button variant="outline" size="xs" className="h-7 px-2.5" onClick={async () => {
+            const picked = await pickFiles({ multiple, accept })
+            if (picked.length > 0) onFiles(picked)
+          }}>
+          {buttonLabel}
+        </Button>
       </div>
     </div>
   )

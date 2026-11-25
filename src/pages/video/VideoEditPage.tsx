@@ -1,15 +1,18 @@
 import { useCallback, useRef, useState } from 'react'
-import type { Dispatch, SetStateAction } from 'react'
-import { BottomBar } from '../components/BottomBar'
-import { FileUpload } from '../components/FileUpload'
-import { Sidebar } from '../components/Sidebar'
-import { VideoPreview } from '../components/VideoPreview'
-import { useConversionJob } from '../hooks/useConversionJob'
-import { useMediaInfo } from '../hooks/useMediaInfo'
-import { useSizeEstimate } from '../hooks/useSizeEstimate'
-import { useI18n } from '../i18n/context'
-import type { ConversionSettings, MediaInfo } from '../types'
-import { DEFAULT_SETTINGS } from '../types'
+import { BottomBar } from '../../components/BottomBar'
+import { FileUpload } from '../../components/FileUpload'
+import { Sidebar } from '../../components/Sidebar'
+import { VideoPreview } from '../../components/VideoPreview'
+import { usePersistentState } from '../../core/usePersistentState'
+import { useSave } from '../../core/useSave'
+import type { ConversionResult } from '../../types'
+import type { EditPageProps } from '../types'
+import { useConversionJob } from '../../hooks/useConversionJob'
+import { useMediaInfo } from '../../hooks/useMediaInfo'
+import { useSizeEstimate } from '../../hooks/useSizeEstimate'
+import { useI18n } from '../../i18n/context'
+import type { ConversionSettings, MediaInfo } from '../../types'
+import { DEFAULT_SETTINGS } from '../../types'
 
 /** 変換結果がいまの設定で作られたものかを比べるための鍵 */
 function settingsKey(settings: ConversionSettings): string {
@@ -24,24 +27,29 @@ function settingsKey(settings: ConversionSettings): string {
   ].join('|')
 }
 
-interface VideoEditPageProps {
-  /** 開いているファイル。別のファイルを開くと画面ごと作り直す */
-  file: File | null
-  settings: ConversionSettings
-  setSettings: Dispatch<SetStateAction<ConversionSettings>>
-  isDragging: boolean
-  onFiles: (files: File[]) => void
+const MIME_TYPES: Record<string, string> = {
+  gif: 'image/gif',
+  webm: 'video/webm',
+  mp4: 'video/mp4',
+}
+
+const toRendered = (result: ConversionResult) => {
+  const extension = result.filename.split('.').pop()?.toLowerCase() ?? ''
+  return {
+    blob: new Blob([result.buffer], { type: MIME_TYPES[extension] ?? 'application/octet-stream' }),
+    filename: result.filename,
+  }
 }
 
 /** 動画 1 本を開き、切り出しや解像度を決めて書き出す画面 */
-export function VideoEditPage({
-  file,
-  settings,
-  setSettings,
-  isDragging,
-  onFiles,
-}: VideoEditPageProps) {
+export function VideoEditPage({ opened, isDragging, onFiles }: EditPageProps) {
   const { t } = useI18n()
+  const file = opened?.file ?? null
+  // 出力設定は別のファイルを開いても、画面を行き来しても残す
+  const [settings, setSettings] = usePersistentState<ConversionSettings>(
+    'video.settings',
+    DEFAULT_SETTINGS
+  )
   const [showAfter, setShowAfter] = useState(false)
   const [convertedKey, setConvertedKey] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -67,6 +75,31 @@ export function VideoEditPage({
     }
   }
 
+  // 保存は変換結果を使う。まだ変換していなければ先に変換する。
+  // 動画は常に再エンコードするので、別名で保存が主になる（上書きはドロップダウン）
+  const save = useSave({
+    opened,
+    lossless: false,
+    sameFormat: false,
+    canCopy: false,
+    disabled: !file || job.running,
+    render: async () => {
+      const result = job.result ?? (await handleConvertResult())
+      if (!result) throw new DOMException('Conversion did not finish', 'AbortError')
+      return toRendered(result)
+    },
+    onSourceReplaced: (next) => onFiles([next]),
+  })
+
+  async function handleConvertResult() {
+    const result = await job.convert()
+    if (result) {
+      setConvertedKey(settingsKey(settings))
+      setShowAfter(true)
+    }
+    return result
+  }
+
   // 尺に依存する切り出し区間は、いま開いているファイルに合わせて残す
   const handleResetSettings = () =>
     setSettings({ ...DEFAULT_SETTINGS, startTime: 0, endTime: media?.duration })
@@ -87,7 +120,7 @@ export function VideoEditPage({
         stale={stale}
         onConvert={handleConvert}
         onCancel={job.cancel}
-        onDownload={job.download}
+        save={save}
       />
 
       <div className="workspace">
@@ -129,7 +162,7 @@ export function VideoEditPage({
             stale={stale}
             onConvert={handleConvert}
             onCancel={job.cancel}
-            onDownload={job.download}
+            save={save}
           />
         )}
       </div>

@@ -1,19 +1,30 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
+import { pickFiles } from '../core/opened'
+import type { SaveState } from '../core/useSave'
+import { SaveButton } from './SaveButton'
+import type { OpenedFile } from '../core/opened'
+import type { ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Progress } from '@/components/ui/progress'
+import { cn } from '@/lib/utils'
 import { useI18n } from '../i18n/context'
 import { trimDuration, trimFromSettings } from '../state/trim'
 import type { ConversionSettings, MediaInfo, PreviewEstimate } from '../types'
 import { formatBytes, formatTimecode } from '../utils/format'
 import { SidebarHead } from './BrandMark'
+import { Caret } from './Caret'
 import { CompatibilityList } from './CompatibilityList'
 import { OutputSteps } from './OutputSteps'
-import { Step } from './Step'
+import { ResetSettingsButton, SourceName } from './SidebarParts'
+import { Step, StepHint } from './Step'
 
 interface SidebarProps {
   file: File | null
   media: MediaInfo | null
   settings: ConversionSettings
   onSettingsChange: (settings: ConversionSettings) => void
-  onFileSelect: (file: File) => void
+  onFileSelect: (file: OpenedFile) => void
   onResetSettings: () => void
   previewEstimate: PreviewEstimate
   converting: boolean
@@ -22,7 +33,21 @@ interface SidebarProps {
   stale: boolean
   onConvert: () => void
   onCancel: () => void
-  onDownload: () => void
+  save: SaveState
+}
+
+/** 名前と値を左右に振り分けた 1 行 */
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="truncate text-right">{children}</dd>
+    </div>
+  )
+}
+
+function Facts({ className, children }: { className?: string; children: ReactNode }) {
+  return <dl className={cn('flex flex-col gap-1 text-xs', className)}>{children}</dl>
 }
 
 /**
@@ -42,10 +67,9 @@ export function Sidebar({
   stale,
   onConvert,
   onCancel,
-  onDownload,
+  save,
 }: SidebarProps) {
   const { t, lang } = useI18n()
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
 
   const dimensions = media?.dimensions ?? null
@@ -57,92 +81,50 @@ export function Sidebar({
 
       <div className="sidebar-scroll">
         <Step index={1} title={t.stepInput}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/*"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const selected = e.target.files?.[0]
-              if (selected) onFileSelect(selected)
-              e.target.value = ''
-            }}
-          />
 
           {file ? (
-            <div className="source">
-              <div className="source-name" title={file.name}>
-                {file.name}
-              </div>
-              <dl className="source-facts">
-                <div>
-                  <dt>{t.factSize}</dt>
-                  <dd>{formatBytes(file.size)}</dd>
-                </div>
+            <div className="flex flex-col gap-2">
+              <SourceName title={file.name}>{file.name}</SourceName>
+              <Facts>
+                <Fact label={t.factSize}>{formatBytes(file.size)}</Fact>
                 {dimensions && (
-                  <div>
-                    <dt>{t.factResolution}</dt>
-                    <dd>
-                      {dimensions.width}×{dimensions.height}
-                    </dd>
-                  </div>
+                  <Fact label={t.factResolution}>
+                    {dimensions.width}×{dimensions.height}
+                  </Fact>
                 )}
-                {media && (
-                  <div>
-                    <dt>{t.factDuration}</dt>
-                    <dd>{formatTimecode(media.duration)}</dd>
-                  </div>
-                )}
-              </dl>
+                {media && <Fact label={t.factDuration}>{formatTimecode(media.duration)}</Fact>}
+              </Facts>
 
-              <button className="disclosure" onClick={() => setDetailsOpen(!detailsOpen)}>
-                {detailsOpen ? '▼' : '▶'} {t.details}
-              </button>
-              {detailsOpen && (
-                <dl className="source-facts source-facts-detail">
-                  <div>
-                    <dt>{t.factMime}</dt>
-                    <dd>{file.type || 'unknown'}</dd>
-                  </div>
-                  {media?.videoCodec && (
-                    <div>
-                      <dt>{t.factVideoCodec}</dt>
-                      <dd>{media.videoCodec}</dd>
-                    </div>
-                  )}
-                  {media?.audioCodec && (
-                    <div>
-                      <dt>{t.factAudioCodec}</dt>
-                      <dd>{media.audioCodec}</dd>
-                    </div>
-                  )}
-                  {media?.tags?.title && (
-                    <div>
-                      <dt>{t.factTitle}</dt>
-                      <dd>{media.tags.title}</dd>
-                    </div>
-                  )}
-                  {media?.tags?.artist && (
-                    <div>
-                      <dt>{t.factArtist}</dt>
-                      <dd>{media.tags.artist}</dd>
-                    </div>
-                  )}
-                  <div>
-                    <dt>{t.factModified}</dt>
-                    <dd>{new Date(file.lastModified).toLocaleString(lang)}</dd>
-                  </div>
-                </dl>
-              )}
+              <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen} className="flex flex-col gap-2">
+                <CollapsibleTrigger className="flex items-center gap-1 self-start text-[11px] text-muted-foreground hover:text-foreground">
+                  <Caret open={detailsOpen} className="text-inherit" />
+                  {t.details}
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <Facts className="border-t border-secondary pt-2 text-[11px]">
+                    <Fact label={t.factMime}>{file.type || 'unknown'}</Fact>
+                    {media?.videoCodec && <Fact label={t.factVideoCodec}>{media.videoCodec}</Fact>}
+                    {media?.audioCodec && <Fact label={t.factAudioCodec}>{media.audioCodec}</Fact>}
+                    {media?.tags?.title && <Fact label={t.factTitle}>{media.tags.title}</Fact>}
+                    {media?.tags?.artist && <Fact label={t.factArtist}>{media.tags.artist}</Fact>}
+                    <Fact label={t.factModified}>
+                      {new Date(file.lastModified).toLocaleString(lang)}
+                    </Fact>
+                  </Facts>
+                </CollapsibleContent>
+              </Collapsible>
             </div>
           ) : (
-            <p className="step-empty">{t.inputEmpty}</p>
+            <StepHint>{t.inputEmpty}</StepHint>
           )}
 
-          <div className="step-actions">
-            <button className="ghost-btn" onClick={() => fileInputRef.current?.click()}>
+          <div className="flex gap-1.5">
+            <Button variant="outline" size="xs" className="h-7 px-2.5" onClick={async () => {
+                const [picked] = await pickFiles({ accept: 'video/*' })
+                if (picked) onFileSelect(picked)
+              }}>
               {t.selectFile}
-            </button>
+            </Button>
           </div>
         </Step>
 
@@ -154,21 +136,17 @@ export function Sidebar({
         />
 
         <Step index={5} title={t.stepEstimate}>
-          <div className="estimate">
-            <div className="estimate-row">
-              <span>{t.estimatedSize}</span>
-              <strong>
-                {previewEstimate.isEstimating
-                  ? t.estimating
-                  : previewEstimate.estimatedSize > 0
-                    ? formatBytes(previewEstimate.estimatedSize)
-                    : '—'}
-              </strong>
-            </div>
-            <div className="estimate-row">
-              <span>{t.outputDuration}</span>
-              <strong>{trimmedDuration > 0 ? formatTimecode(trimmedDuration) : '—'}</strong>
-            </div>
+          <div className="flex flex-col gap-1.5 rounded-md bg-muted px-3 py-2.5">
+            <EstimateRow label={t.estimatedSize}>
+              {previewEstimate.isEstimating
+                ? t.estimating
+                : previewEstimate.estimatedSize > 0
+                  ? formatBytes(previewEstimate.estimatedSize)
+                  : '—'}
+            </EstimateRow>
+            <EstimateRow label={t.outputDuration}>
+              {trimmedDuration > 0 ? formatTimecode(trimmedDuration) : '—'}
+            </EstimateRow>
           </div>
 
           {previewEstimate.estimatedSize > 0 ? (
@@ -177,38 +155,39 @@ export function Sidebar({
               duration={trimmedDuration}
             />
           ) : (
-            <p className="step-hint">{t.estimateEmpty}</p>
+            <StepHint>{t.estimateEmpty}</StepHint>
           )}
         </Step>
 
-        <button className="link-btn" onClick={onResetSettings}>
-          {t.resetSettings}
-        </button>
+        <ResetSettingsButton onClick={onResetSettings} />
       </div>
 
       <div className="sidebar-footer">
         {converting ? (
           <>
-            <div className="footer-progress">
-              <div className="footer-progress-bar" style={{ width: `${progress}%` }} />
-            </div>
-            <button className="cancel-btn block" onClick={onCancel}>
+            <Progress value={progress} className="h-1" />
+            <Button variant="destructive" className="w-full" onClick={onCancel}>
               {t.cancelWithProgress(progress)}
-            </button>
+            </Button>
           </>
         ) : (
           <>
-            <button className="convert-btn block" onClick={onConvert} disabled={!file}>
+            <Button className="w-full" onClick={onConvert} disabled={!file}>
               {hasResult ? (stale ? t.reconvertLong : t.convertAgain) : t.convert}
-            </button>
-            {hasResult && (
-              <button className="download-btn block" onClick={onDownload}>
-                {t.download}
-              </button>
-            )}
+            </Button>
+            {hasResult && <SaveButton save={save} />}
           </>
         )}
       </div>
     </aside>
+  )
+}
+
+function EstimateRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex justify-between text-xs text-muted-foreground">
+      <span>{label}</span>
+      <strong className="text-[13px] text-foreground">{children}</strong>
+    </div>
   )
 }
