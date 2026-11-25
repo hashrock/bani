@@ -1,85 +1,51 @@
-import { useRef, useCallback } from 'react'
-import { useI18n } from '../i18n/context'
+import { useRef } from 'react'
 
 interface FileUploadProps {
-  file: File | null
-  files: File[]
   isDragging: boolean
-  onFileSelect: (file: File) => void
-  onFilesSelect: (files: File[]) => void
-  onDragOver: (e: React.DragEvent) => void
-  onDragLeave: (e: React.DragEvent) => void
-  onDrop: (e: React.DragEvent) => void
+  message: string
+  buttonLabel: string
+  hint?: string
+  accept?: string
+  multiple?: boolean
+  onFiles: (files: File[]) => void
 }
 
-/** 何も読み込んでいないときのドロップ領域 */
+/**
+ * まだ何も読み込んでいないときのドロップ領域。
+ * ドロップそのものはアプリ全体で受けるので、ここは見た目と選択ボタンだけを持つ。
+ */
 export function FileUpload({
-  file,
-  files,
   isDragging,
-  onFileSelect,
-  onFilesSelect,
-  onDragOver,
-  onDragLeave,
-  onDrop,
+  message,
+  buttonLabel,
+  hint,
+  accept,
+  multiple = false,
+  onFiles,
 }: FileUploadProps) {
-  const { t } = useI18n()
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const batchFileInputRef = useRef<HTMLInputElement>(null)
-
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const selectedFile = e.target.files?.[0]
-      if (selectedFile) {
-        onFileSelect(selectedFile)
-      }
-    },
-    [onFileSelect]
-  )
-
-  const handleBatchFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const selectedFiles = e.target.files
-      if (selectedFiles && selectedFiles.length > 0) {
-        onFilesSelect(Array.from(selectedFiles))
-      }
-    },
-    [onFilesSelect]
-  )
-
-  if (file || files.length > 0) return null
+  const inputRef = useRef<HTMLInputElement>(null)
 
   return (
-    <div
-      className={`preview-area drop-zone ${isDragging ? 'dragging' : ''}`}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
+    <div className={`preview-area drop-zone ${isDragging ? 'dragging' : ''}`}>
       <input
-        ref={fileInputRef}
+        ref={inputRef}
         type="file"
-        onChange={handleFileChange}
-        accept="video/*"
+        accept={accept}
+        multiple={multiple}
         style={{ display: 'none' }}
-      />
-      <input
-        ref={batchFileInputRef}
-        type="file"
-        onChange={handleBatchFileChange}
-        accept="video/*"
-        multiple
-        style={{ display: 'none' }}
+        onChange={(e) => {
+          const selected = e.target.files
+          if (selected && selected.length > 0) onFiles(Array.from(selected))
+          e.target.value = ''
+        }}
       />
 
       <div className="drop-content">
-        <div className="drop-message">{t.dropHere}</div>
+        <div className="drop-message">{message}</div>
+        {hint && <p className="drop-hint">{hint}</p>}
         <div className="drop-actions">
-          <button className="ghost-btn" onClick={() => fileInputRef.current?.click()}>
-            {t.selectFile}
-          </button>
-          <button className="ghost-btn" onClick={() => batchFileInputRef.current?.click()}>
-            {t.selectFiles}
+          <button className="ghost-btn" onClick={() => inputRef.current?.click()}>
+            {buttonLabel}
           </button>
         </div>
       </div>

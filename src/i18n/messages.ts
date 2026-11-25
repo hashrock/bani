@@ -19,6 +19,7 @@ const ja = {
   selectFile: 'ファイルを選択',
   selectFiles: '複数選択',
   batchSelected: (count: number) => `${count} ファイルを一括変換`,
+  addFiles: 'ファイルを選び直す',
   details: '詳細',
   factSize: 'サイズ',
   factResolution: '解像度',
@@ -87,6 +88,26 @@ const ja = {
 
   // Drop zone
   dropHere: '動画ファイルをここにドロップ',
+  dropHereBatch: '一括変換する動画ファイルをここにドロップ',
+
+  // Hub
+  hubTagline: 'メディアの変換と簡単な編集を、ブラウザの中だけで。',
+  hubDrop: 'ファイルをここにドロップ',
+  hubDropHint: '1 つなら編集画面、複数なら一括変換へ進みます。ファイルはどこにも送信されません。',
+  hubPick: 'ファイルを選択',
+  hubEdit: '編集',
+  hubConvert: '一括変換',
+  hubComingSoon: '準備中',
+  kindLabel: { video: '動画', audio: '音声', image: '画像', pdf: 'PDF', text: 'テキスト' },
+
+  // Routing
+  comingSoonTitle: (kind: string) => `${kind}の編集は準備中です`,
+  comingSoonBody: 'ロードマップに沿って順に対応していきます。',
+  notFoundTitle: 'ページが見つかりません',
+  backToHub: '入口に戻る',
+  unsupportedFiles: 'このファイルの種類にはまだ対応していません',
+  skippedFiles: (count: number) => `対応していない ${count} ファイルを除きました`,
+  dismiss: '閉じる',
 
   // Errors（アプリが出すもの。エンコーダ由来の例外はそのまま表示する）
   errorCancelled: '変換を中止しました',
@@ -95,6 +116,7 @@ const ja = {
   errorFolderFailed: '保存先フォルダを選べませんでした',
 
   // Batch
+  batchEmpty: 'ファイルをドロップするか、下のボタンから選択します。',
   batchStatus: (completed: number, total: number, errors: number) =>
     `一括変換 ${completed}/${total} 完了${errors > 0 ? `、エラー ${errors}` : ''}`,
 
@@ -118,6 +140,7 @@ const en: Messages = {
   selectFile: 'Select file',
   selectFiles: 'Select multiple',
   batchSelected: (count: number) => `${count} files queued for batch conversion`,
+  addFiles: 'Choose files again',
   details: 'Details',
   factSize: 'Size',
   factResolution: 'Resolution',
@@ -179,12 +202,31 @@ const en: Messages = {
   cancel: 'Cancel',
 
   dropHere: 'Drop a video file here',
+  dropHereBatch: 'Drop video files to batch convert',
+
+  hubTagline: 'Convert and lightly edit media, entirely in your browser.',
+  hubDrop: 'Drop files here',
+  hubDropHint: 'One file opens the editor; several go to batch conversion. Nothing is uploaded.',
+  hubPick: 'Select files',
+  hubEdit: 'Edit',
+  hubConvert: 'Batch convert',
+  hubComingSoon: 'Coming soon',
+  kindLabel: { video: 'Video', audio: 'Audio', image: 'Image', pdf: 'PDF', text: 'Text' },
+
+  comingSoonTitle: (kind: string) => `${kind} editing is coming soon`,
+  comingSoonBody: 'Support is being added step by step, following the roadmap.',
+  notFoundTitle: 'Page not found',
+  backToHub: 'Back to start',
+  unsupportedFiles: 'This file type is not supported yet',
+  skippedFiles: (count: number) => `Skipped ${count} unsupported files`,
+  dismiss: 'Dismiss',
 
   errorCancelled: 'Conversion cancelled',
   errorConversionFailed: 'Conversion failed',
   errorFolderCancelled: 'Folder selection was cancelled',
   errorFolderFailed: 'Failed to select output folder',
 
+  batchEmpty: 'Drop files here, or pick them with the button below.',
   batchStatus: (completed: number, total: number, errors: number) =>
     `Batch conversion ${completed}/${total} completed${errors > 0 ? `, ${errors} errors` : ''}`,
 
@@ -193,12 +235,14 @@ const en: Messages = {
 
 export const messages: Record<Lang, Messages> = { ja, en }
 
-export const STORAGE_KEY = 'mediabunny-ui.lang'
+export const STORAGE_KEY = 'bani.lang'
+/** 改名前のキー。読むだけで、次に言語を選んだ時点で新しいキーへ移る */
+const LEGACY_STORAGE_KEY = 'mediabunny-ui.lang'
 
 /** 保存された選択 → ブラウザの言語 の順に決める */
 export function detectLang(): Lang {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY)
+    const saved = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)
     if (saved === 'ja' || saved === 'en') return saved
   } catch {
     // プライベートモードなどで localStorage を読めないときはブラウザの言語に従う

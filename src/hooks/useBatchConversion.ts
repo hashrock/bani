@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { useI18n } from '../i18n/context'
 import { encode } from '../converters'
 import { batchReducer, initialBatchState } from '../state/batchConversion'
@@ -16,12 +16,20 @@ export interface BatchConversion {
   cancel: () => void
 }
 
-export function useBatchConversion(settings: ConversionSettings): BatchConversion {
+export function useBatchConversion(
+  settings: ConversionSettings,
+  initialFiles: File[] = []
+): BatchConversion {
   const { t } = useI18n()
-  const [files, dispatch] = useReducer(batchReducer, initialBatchState)
+  const [files, dispatch] = useReducer(batchReducer, initialFiles, (selected) =>
+    batchReducer(initialBatchState, { type: 'init', files: selected })
+  )
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
   const abortRef = useRef<AbortController | null>(null)
+
+  // 画面を離れたら残りの変換も止める
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const setFiles = useCallback((selected: File[]) => {
     setError('')

@@ -55,3 +55,8 @@ export interface Trim {
   start: number
   end: number
 }
+
+export const DEFAULT_SETTINGS: ConversionSettings = {
+  format: 'mp4',
+  quality: 80,
+}

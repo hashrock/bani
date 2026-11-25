@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { useI18n } from '../i18n/context'
 import { encode, toConversionResult } from '../converters'
 import {
@@ -42,6 +42,9 @@ export function useConversionJob({
   const { t } = useI18n()
   const [state, dispatch] = useReducer(jobReducer, initialJobState)
   const abortRef = useRef<AbortController | null>(null)
+
+  // 画面を離れたら走っている変換も止める
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const convert = useCallback(async () => {
     if (!file) return null

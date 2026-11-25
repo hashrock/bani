@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// GitHub Pages はリポジトリ名のサブパスで配信されるので、Actions 上ではそこから base を決める。
+// リポジトリ名を変えても設定を書き換えずに済む
+const repository = process.env.GITHUB_REPOSITORY?.split('/')[1]
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: process.env.GITHUB_ACTIONS ? '/mediabunny-ui/' : '/',
+  base: process.env.GITHUB_ACTIONS && repository ? `/${repository}/` : '/',
 })
