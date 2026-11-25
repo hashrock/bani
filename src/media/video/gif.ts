@@ -1,9 +1,11 @@
 import GIF from 'gif.js'
-import { createAbortError, isAbortError, throwIfAborted } from '../utils/abort'
-import { replaceExtension } from '../utils/format'
-import type { EncodeOptions, EncodedResult } from './types'
-
-export const DEFAULT_GIF_FPS = 10
+import { createAbortError, isAbortError, throwIfAborted } from '../../utils/abort'
+import type { Trim } from '../../types'
+import type { RenderOptions, RenderedFile } from '../types'
+import { DEFAULT_GIF_FPS, VIDEO_MIME_TYPES, computeFrameDrawPlan, videoFilename } from './output'
+import { drawFrame } from './frame'
+import { createVideoRecipe } from './recipe'
+import type { VideoOutput, VideoRecipe } from './types'
 
 const GIF_WORKERS = 2
 const GIF_QUALITY = 10
@@ -21,13 +23,13 @@ const FRAME_EXTRACTION_SHARE = 0.8
  * video 要素からフレームを 1 枚ずつ取り出して GIF に組み立てる。
  * mediabunny は GIF 出力に対応していないため、この経路だけ canvas を使う。
  */
-export async function encodeGif({
-  file,
-  settings,
-  trim,
-  signal,
-  onProgress,
-}: EncodeOptions): Promise<EncodedResult> {
+export async function encodeGif(
+  file: Blob & { name?: string },
+  recipe: VideoRecipe | null,
+  output: VideoOutput,
+  trim: Trim | null,
+  { signal, onProgress }: RenderOptions = {}
+): Promise<RenderedFile> {
   throwIfAborted(signal)
 
   const video = document.createElement('video')
@@ -45,10 +47,16 @@ export async function encodeGif({
 
     const start = trim?.start ?? 0
     const end = trim?.end ?? video.duration
-    const fps = settings.fps ?? DEFAULT_GIF_FPS
-    const width = settings.width ?? video.videoWidth
-    const height = settings.height ?? video.videoHeight
+    const fps = output.fps ?? DEFAULT_GIF_FPS
     const totalFrames = Math.max(1, Math.ceil((end - start) * fps))
+    // 寸法は実際にデコードした映像から取る（レシピの座標と同じ、向きを反映した見た目どおりの寸法）
+    const plan = computeFrameDrawPlan(
+      { dimensions: { width: video.videoWidth, height: video.videoHeight } },
+      recipe ?? createVideoRecipe({ duration: 0 }),
+      output
+    )
+    if (!plan) throw new Error(VIDEO_LOAD_ERROR)
+    const { canvasWidth: width, canvasHeight: height } = plan
 
     const canvas = document.createElement('canvas')
     canvas.width = width
@@ -71,17 +79,19 @@ export async function encodeGif({
       if (time > end) break
 
       await seek(video, time, signal)
-      context.drawImage(video, 0, 0, width, height)
+      drawFrame(context, video, plan)
       gif.addFrame(context, { copy: true, delay: 1000 / fps })
 
       onProgress?.((frame / totalFrames) * FRAME_EXTRACTION_SHARE)
     }
 
     const blob = await render(gif, signal, onProgress)
-    const buffer = await blob.arrayBuffer()
 
     onProgress?.(1)
-    return { buffer, filename: replaceExtension(file.name, 'gif') }
+    return {
+      blob: new Blob([blob], { type: VIDEO_MIME_TYPES.gif }),
+      filename: videoFilename(file.name ?? 'video', 'gif'),
+    }
   } catch (err) {
     gif?.abort()
     throw err

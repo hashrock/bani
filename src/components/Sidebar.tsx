@@ -9,8 +9,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import { useI18n } from '../i18n/context'
-import { trimDuration, trimFromSettings } from '../state/trim'
-import type { ConversionSettings, MediaInfo, PreviewEstimate } from '../types'
+import type { VideoInfo, VideoOutput, VideoSize } from '../media/video'
+import { trimDuration } from '../state/trim'
+import type { PreviewEstimate, Trim } from '../types'
 import { formatBytes, formatTimecode } from '../utils/format'
 import { SidebarHead } from './BrandMark'
 import { Caret } from './Caret'
@@ -21,9 +22,17 @@ import { Step, StepHint } from './Step'
 
 interface SidebarProps {
   file: File | null
-  media: MediaInfo | null
-  settings: ConversionSettings
-  onSettingsChange: (settings: ConversionSettings) => void
+  media: VideoInfo | null
+  output: VideoOutput
+  onOutputChange: (output: VideoOutput) => void
+  /** 書き出す区間 */
+  trim: Trim
+  /** 切り抜き・回転のあとの寸法。解像度のプリセットの基準にする */
+  editedSize: VideoSize | null
+  /** 入力の次に置く編集の手順。番号を受け取って描く */
+  renderEditStep?: (index: number) => ReactNode
+  /** 見込みの次に置く、ほかの書き出しの手順 */
+  renderExportStep?: (index: number) => ReactNode
   onFileSelect: (file: OpenedFile) => void
   onResetSettings: () => void
   previewEstimate: PreviewEstimate
@@ -51,13 +60,17 @@ function Facts({ className, children }: { className?: string; children: ReactNod
 }
 
 /**
- * 単体編集の手順（入力 → 形式 → 画質 → 解像度 → 見込み → 実行）を上から下に並べたパネル。
+ * 単体編集の手順（入力 → 編集 → 形式 → 画質 → 解像度 → 見込み → ほかの書き出し → 実行）を上から下に並べたパネル。
  */
 export function Sidebar({
   file,
   media,
-  settings,
-  onSettingsChange,
+  output,
+  onOutputChange,
+  trim,
+  editedSize,
+  renderEditStep,
+  renderExportStep,
   onFileSelect,
   onResetSettings,
   previewEstimate,
@@ -73,7 +86,10 @@ export function Sidebar({
   const [detailsOpen, setDetailsOpen] = useState(false)
 
   const dimensions = media?.dimensions ?? null
-  const trimmedDuration = trimDuration(trimFromSettings(settings, media?.duration ?? 0))
+  const trimmedDuration = trimDuration(trim)
+  // 編集の手順があればその分だけ後ろの番号をずらす
+  const outputIndex = renderEditStep ? 3 : 2
+  const estimateIndex = outputIndex + 3
 
   return (
     <aside className="sidebar">
@@ -128,14 +144,16 @@ export function Sidebar({
           </div>
         </Step>
 
+        {renderEditStep?.(2)}
+
         <OutputSteps
-          startIndex={2}
-          settings={settings}
-          onSettingsChange={onSettingsChange}
-          dimensions={dimensions}
+          startIndex={outputIndex}
+          settings={output}
+          onSettingsChange={onOutputChange}
+          dimensions={editedSize}
         />
 
-        <Step index={5} title={t.stepEstimate}>
+        <Step index={estimateIndex} title={t.stepEstimate}>
           <div className="flex flex-col gap-1.5 rounded-md bg-muted px-3 py-2.5">
             <EstimateRow label={t.estimatedSize}>
               {previewEstimate.isEstimating
@@ -158,6 +176,8 @@ export function Sidebar({
             <StepHint>{t.estimateEmpty}</StepHint>
           )}
         </Step>
+
+        {renderExportStep?.(estimateIndex + 1)}
 
         <ResetSettingsButton onClick={onResetSettings} />
       </div>

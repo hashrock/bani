@@ -1,4 +1,4 @@
-import type { ConversionSettings, Trim } from '../types'
+import type { Trim } from '../types'
 
 /**
  * 切り出し区間そのもののルール。React にも mediabunny にも依存しない純粋な計算だけを置く。
@@ -43,18 +43,14 @@ export function trimDuration(trim: Trim): number {
   return Math.max(0, trim.end - trim.start)
 }
 
-/** 設定に入っている切り出し区間を読む。終端が設定になければ尺で埋める */
-export function trimFromSettings(settings: ConversionSettings, duration: number): Trim {
-  return { start: Math.max(0, settings.startTime ?? 0), end: settings.endTime ?? duration }
-}
-
 /**
  * 変換に渡す切り出し指定。区間が入力全体と変わらない場合や
  * 長さを決められない場合は null を返し、呼び出し側で無加工に倒せるようにする。
+ * 尺が分からない（null）ときは区間をそのまま信じる。
  */
-export function toEncodeTrim(settings: ConversionSettings, duration: number | null): Trim | null {
-  // 尺が分からないときは、終端を設定から決められなければ長さ 0 に倒れて null になる
-  const trim = trimFromSettings(settings, duration ?? 0)
-  if (trimDuration(trim) === 0) return null
-  return duration !== null && isWholeClip(trim, duration) ? null : trim
+export function toEncodeTrim(trim: Trim, duration: number | null): Trim | null {
+  if (!Number.isFinite(trim.start) || !Number.isFinite(trim.end)) return null
+  const normalized = { start: Math.max(0, trim.start), end: trim.end }
+  if (trimDuration(normalized) === 0) return null
+  return duration !== null && isWholeClip(normalized, duration) ? null : normalized
 }

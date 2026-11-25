@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { useI18n } from '../i18n/context'
-import { encode } from '../converters'
+import { renderVideo } from '../media/video'
 import { batchReducer, initialBatchState } from '../state/batchConversion'
 import type { BatchFileStatus, ConversionSettings } from '../types'
 import { isAbortError } from '../utils/abort'
@@ -69,18 +69,15 @@ export function useBatchConversion(
 
         dispatch({ type: 'start', index })
         try {
-          const encoded = await encode({
-            file: item.file,
-            // 長さの異なるファイルが混ざるため、バッチでは常に全体を変換する
-            trim: null,
-            settings,
+          // 長さの異なるファイルが混ざるため、バッチでは編集なし（レシピ null）で常に全体を変換する
+          const rendered = await renderVideo(item.file, null, settings, {
             signal: controller.signal,
             onProgress: (progress) =>
               dispatch({ type: 'progress', index, value: Math.round(progress * 100) }),
           })
-          await writeFileToDirectory(directory, encoded.filename, encoded.buffer)
+          await writeFileToDirectory(directory, rendered.filename, await rendered.blob.arrayBuffer())
           // 出力は書き出し済みなので、一覧には表示に使う大きさだけを残す
-          dispatch({ type: 'complete', index, convertedSize: encoded.buffer.byteLength })
+          dispatch({ type: 'complete', index, convertedSize: rendered.blob.size })
         } catch (err) {
           if (isAbortError(err)) break
           console.error('Conversion error for', item.file.name, ':', err)

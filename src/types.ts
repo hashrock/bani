@@ -1,19 +1,21 @@
-import type { MetadataTags } from 'mediabunny'
+import { DEFAULT_VIDEO_OUTPUT } from './media/video/output'
+import type { VideoFormat, VideoInfo, VideoOutput } from './media/video/types'
 
-export type OutputFormat = 'mp4' | 'webm' | 'gif'
+/** @deprecated VideoFormat（src/media/video）を使う。一括変換の画面が移るまで残す */
+export type OutputFormat = VideoFormat
 
-export interface ConversionSettings {
-  format: OutputFormat
-  width?: number
-  height?: number
-  quality: number
-  startTime?: number
-  endTime?: number
-  fps?: number // GIF frame rate (default: 10)
-}
+/**
+ * 一括変換で使う動画の出力設定。編集（トリム・切り抜きなど）は VideoRecipe に分けたので、
+ * ここに残るのは形式・画質・解像度・フレームレートだけ。
+ * @deprecated VideoOutput（src/media/video）を使う。App.tsx と一括変換の画面が移るまで残す
+ */
+export type ConversionSettings = VideoOutput
+
+/** @deprecated DEFAULT_VIDEO_OUTPUT（src/media/video）を使う */
+export const DEFAULT_SETTINGS: ConversionSettings = DEFAULT_VIDEO_OUTPUT
 
 export interface ConversionResult {
-  buffer: ArrayBuffer
+  blob: Blob
   originalSize: number
   convertedSize: number
   filename: string
@@ -42,21 +44,10 @@ export type BatchFileStatus =
   | (BatchFileBase & { status: 'error'; error: string })
 
 /** 入力ファイルから読み取ったメディア情報。常にまとめて取得・破棄する */
-export interface MediaInfo {
-  duration: number
-  dimensions: { width: number; height: number } | null
-  videoCodec: string | null
-  audioCodec: string | null
-  tags: MetadataTags | null
-}
+export type MediaInfo = VideoInfo
 
 /** 入力ファイルから切り出す区間（秒） */
 export interface Trim {
   start: number
   end: number
-}
-
-export const DEFAULT_SETTINGS: ConversionSettings = {
-  format: 'mp4',
-  quality: 80,
 }

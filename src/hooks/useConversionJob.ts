@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { useI18n } from '../i18n/context'
-import { encode, toConversionResult } from '../converters'
+import { renderVideo } from '../media/video'
+import type { VideoInfo, VideoOutput, VideoRecipe } from '../media/video'
 import {
   initialJobState,
   isJobRunning,
@@ -10,15 +11,14 @@ import {
   jobResult,
 } from '../state/conversionJob'
 import type { JobState } from '../state/conversionJob'
-import { toEncodeTrim } from '../state/trim'
-import type { ConversionResult, ConversionSettings, MediaInfo } from '../types'
+import type { ConversionResult } from '../types'
 import { isAbortError } from '../utils/abort'
-import { downloadBuffer } from '../utils/download'
 
 interface UseConversionJobOptions {
   file: File | null
-  settings: ConversionSettings
-  media: MediaInfo | null
+  recipe: VideoRecipe
+  output: VideoOutput
+  media: VideoInfo | null
 }
 
 export interface ConversionJob {
@@ -31,12 +31,13 @@ export interface ConversionJob {
   convert: () => Promise<ConversionResult | null>
   cancel: () => void
   reset: () => void
-  download: () => void
 }
 
+/** 元ファイル + レシピ + 出力設定 から 1 本を書き出す。結果はプレビューと保存に使う */
 export function useConversionJob({
   file,
-  settings,
+  recipe,
+  output,
   media,
 }: UseConversionJobOptions): ConversionJob {
   const { t } = useI18n()
@@ -54,14 +55,17 @@ export function useConversionJob({
     dispatch({ type: 'start' })
 
     try {
-      const encoded = await encode({
-        file,
-        settings,
-        trim: toEncodeTrim(settings, media?.duration ?? null),
+      const rendered = await renderVideo(file, recipe, output, {
+        info: media,
         signal: controller.signal,
         onProgress: (progress) => dispatch({ type: 'progress', value: Math.round(progress * 100) }),
       })
-      const converted = toConversionResult(file, encoded)
+      const converted: ConversionResult = {
+        blob: rendered.blob,
+        originalSize: file.size,
+        convertedSize: rendered.blob.size,
+        filename: rendered.filename,
+      }
       dispatch({ type: 'done', result: converted })
       return converted
     } catch (err) {
@@ -76,7 +80,7 @@ export function useConversionJob({
     } finally {
       if (abortRef.current === controller) abortRef.current = null
     }
-  }, [file, settings, media, t])
+  }, [file, recipe, output, media, t])
 
   const cancel = useCallback(() => {
     abortRef.current?.abort()
@@ -90,21 +94,14 @@ export function useConversionJob({
     dispatch({ type: 'reset' })
   }, [])
 
-  const result = jobResult(state)
-
-  const download = useCallback(() => {
-    if (result) downloadBuffer(result.buffer, result.filename)
-  }, [result])
-
   return {
     state,
     running: isJobRunning(state),
     progress: jobProgress(state),
-    result,
+    result: jobResult(state),
     error: state.kind === 'cancelled' ? t.errorCancelled : jobErrorMessage(state),
     convert,
     cancel,
     reset,
-    download,
   }
 }
