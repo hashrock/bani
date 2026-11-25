@@ -12,14 +12,14 @@ const ja = {
   stepQuality: '画質',
   stepFps: 'フレームレート',
   stepResolution: '解像度',
+  stepEdit: '編集',
+  stepOutput: '出力',
   stepEstimate: '出力の見込み',
 
   // Input
   inputEmpty: 'ファイルをドロップするか、下のボタンから選択します。',
   selectFile: 'ファイルを選択',
   selectFiles: '複数選択',
-  batchSelected: (count: number) => `${count} ファイルを一括変換`,
-  addFiles: 'ファイルを選び直す',
   details: '詳細',
   factSize: 'サイズ',
   factResolution: '解像度',
@@ -61,9 +61,8 @@ const ja = {
   convert: '変換する',
   convertAgain: 'もう一度変換',
   reconvertLong: '再変換する',
-  cancelWithProgress: (progress: number) => `変換を中止（${progress}%）`,
-  download: 'ダウンロード',
-  convertBatch: (count: number) => `${count} ファイルを変換`,
+  cancelWithProgress: (progress: number) => `中止（${progress}%）`,
+  resetEdits: '編集をすべて取り消す',
 
   // Bottom bar
   play: '再生',
@@ -88,7 +87,6 @@ const ja = {
 
   // Drop zone
   dropHere: '動画ファイルをここにドロップ',
-  dropHereBatch: '一括変換する動画ファイルをここにドロップ',
 
   // Hub
   hubTagline: 'メディアの変換と簡単な編集を、ブラウザの中だけで。',
@@ -108,8 +106,6 @@ const ja = {
   },
 
   // Routing
-  comingSoonTitle: (kind: string) => `${kind}の編集は準備中です`,
-  comingSoonBody: 'ロードマップに沿って順に対応していきます。',
   notFoundTitle: 'ページが見つかりません',
   backToHub: '入口に戻る',
   unsupportedFiles: 'このファイルの種類にはまだ対応していません',
@@ -129,10 +125,19 @@ const ja = {
   saveMore: 'ほかの保存方法',
   saving: '保存中…',
   savedTo: (name: string) => `${name} に保存しました`,
+  downloaded: (name: string) => `${name} をダウンロードしました`,
   copiedToClipboard: 'クリップボードにコピーしました',
   saveFailed: (message: string) => `保存できませんでした: ${message}`,
   undo: '取り消す',
   redo: 'やり直す',
+  discardConfirm: '保存していない変更があります。破棄してほかのファイルを開きますか？',
+
+  // 複数のファイルの保存
+  saveManyFolder: 'フォルダに保存',
+  saveManyZip: 'ZIP にまとめて保存',
+  saveManyEach: (count: number): string => (count === 1 ? 'ダウンロード' : '1 つずつダウンロード'),
+  savedFiles: (count: number, target: string) => `${count} ファイルを ${target} に保存しました`,
+  downloadedFiles: (count: number) => `${count} ファイルをダウンロードしました`,
 
   // Batch
   batchEmpty: 'ファイルをドロップするか、下のボタンから選択します。',
@@ -162,13 +167,13 @@ const en: Messages = {
   stepQuality: 'Quality',
   stepFps: 'Frame rate',
   stepResolution: 'Resolution',
+  stepEdit: 'Edit',
+  stepOutput: 'Output',
   stepEstimate: 'Estimate',
 
   inputEmpty: 'Drop a file here, or pick one with the buttons below.',
   selectFile: 'Select file',
   selectFiles: 'Select multiple',
-  batchSelected: (count: number) => `${count} files queued for batch conversion`,
-  addFiles: 'Choose files again',
   details: 'Details',
   factSize: 'Size',
   factResolution: 'Resolution',
@@ -206,8 +211,7 @@ const en: Messages = {
   convertAgain: 'Convert again',
   reconvertLong: 'Re-convert',
   cancelWithProgress: (progress: number) => `Cancel (${progress}%)`,
-  download: 'Download',
-  convertBatch: (count: number) => `Convert ${count} files`,
+  resetEdits: 'Undo all edits',
 
   play: 'Play',
   pause: 'Pause',
@@ -230,7 +234,6 @@ const en: Messages = {
   cancel: 'Cancel',
 
   dropHere: 'Drop a video file here',
-  dropHereBatch: 'Drop video files to batch convert',
 
   hubTagline: 'Convert and lightly edit media, entirely in your browser.',
   hubDrop: 'Drop files here',
@@ -248,8 +251,6 @@ const en: Messages = {
     archive: 'Archive',
   },
 
-  comingSoonTitle: (kind: string) => `${kind} editing is coming soon`,
-  comingSoonBody: 'Support is being added step by step, following the roadmap.',
   notFoundTitle: 'Page not found',
   backToHub: 'Back to start',
   unsupportedFiles: 'This file type is not supported yet',
@@ -267,10 +268,18 @@ const en: Messages = {
   saveMore: 'More ways to save',
   saving: 'Saving…',
   savedTo: (name: string) => `Saved to ${name}`,
+  downloaded: (name: string) => `Downloaded ${name}`,
   copiedToClipboard: 'Copied to clipboard',
   saveFailed: (message: string) => `Could not save: ${message}`,
   undo: 'Undo',
   redo: 'Redo',
+  discardConfirm: 'You have unsaved changes. Discard them and open the other file?',
+
+  saveManyFolder: 'Save to folder…',
+  saveManyZip: 'Save as one ZIP…',
+  saveManyEach: (count: number) => (count === 1 ? 'Download' : 'Download one by one'),
+  savedFiles: (count: number, target: string) => `Saved ${count} files to ${target}`,
+  downloadedFiles: (count: number) => `Downloaded ${count} files`,
 
   batchEmpty: 'Drop files here, or pick them with the button below.',
   batchStatus: (completed: number, total: number, errors: number) =>
