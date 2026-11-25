@@ -204,7 +204,23 @@ describe('createHashGuard', () => {
           expect(b.entries[b.pos].state).toMatchObject({ baniIndex: b.pos })
         }
       }),
-      { numRuns: 500 }
+      {
+        numRuns: 500,
+        // 断って戻したあと、番号のない項目へ 2 歩の go で来ると数え違えていた（PBT が見つけた反例）
+        examples: [
+          [
+            [
+              { type: 'push', hash: '#/edit/audio' },
+              { type: 'dirty', value: true },
+              { type: 'answer', value: false },
+              { type: 'push', hash: '#/' },
+              { type: 'dirty', value: false },
+              { type: 'go', delta: -1 },
+              { type: 'go', delta: 2 },
+            ],
+          ],
+        ],
+      }
     )
   })
 })

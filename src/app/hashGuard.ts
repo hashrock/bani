@@ -99,6 +99,9 @@ export function createHashGuard(deps: HashGuardDeps): HashGuard {
         commit(hash, nextIndex)
         return
       }
+      // 戻す前に、いま居る項目へ番号を振っておく。新しく積まれた項目は番号のないまま進む側に残り、
+      // あとで 2 歩以上の go で来たときに「今の 1 つ先」と数え違えるため
+      writeIndex(history, nextIndex)
       reverting = true
       history.go(-delta)
     },

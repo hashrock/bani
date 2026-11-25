@@ -84,7 +84,7 @@ describe('parseViewBox', () => {
 })
 
 describe('intrinsicSvgSize', () => {
-  it('極端に大きい幅でも、比から割り戻した高さが無限大にならない（PBT で見つかった反例）', () => {
+  test('極端に大きい幅でも、比から割り戻した高さが無限大にならない（PBT で見つかった反例）', () => {
     const size = intrinsicSvgSize({ width: '1.348269851146737e+308', height: null, viewBox: '0 0 3 4' })
     expect(Number.isFinite(size.height) && size.height > 0).toBe(true)
   })
