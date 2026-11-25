@@ -47,7 +47,7 @@ export async function probeImage(file: Blob): Promise<ImageInfo> {
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
   } catch (error) {
-    const heif = await probeHeifFallback(bytes).catch((heifError: unknown) => {
+    const heif = await probeHeifFallback(file, bytes).catch((heifError: unknown) => {
       throw new Error('この画像は読み込めません', { cause: heifError })
     })
     if (!heif) throw new Error('この画像は読み込めません', { cause: error })

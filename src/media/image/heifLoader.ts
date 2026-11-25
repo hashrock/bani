@@ -1,6 +1,7 @@
 /**
- * libheif（WASM 約 1.5MB）のブラウザでの読み込み。HEIC を開いたときに初めて import される
- * （decode.ts から動的 import）ので、HEIC を使わない人の起動には影響しない。
+ * libheif（WASM 約 1.5MB）のブラウザでの読み込み。HEIC を開いたときに初めて読み込まれる。
+ * 通常は heifWorker.ts（Worker）の中でだけ使う。12MP の写真のデコードに 1 秒ほど CPU を使い切るので、
+ * 画面のスレッドでは動かさない（Worker のない環境だけ decode.ts から動的 import して直接使う）。
  *
  * libheif は LGPL-3.0。アプリ本体とは別のファイル（JS のチャンクと .wasm）として配り、
  * 実行時に読み込むだけなので、差し替えができる形を保っている。
@@ -61,6 +62,7 @@ export async function probeHeif(bytes: Uint8Array): Promise<{ width: number; hei
   return readHeifSize(await loadLibHeif(), bytes)
 }
 
+/** 主画像をデコードし、向きを反映済みの ImageData にする */
 export async function decodeHeifToImageData(bytes: Uint8Array): Promise<ImageData> {
   const pixels: PixelBuffer = await decodeHeif(await loadLibHeif(), bytes)
   return new ImageData(pixels.data as Uint8ClampedArray<ArrayBuffer>, pixels.width, pixels.height)

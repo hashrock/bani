@@ -42,7 +42,7 @@ export async function renderImage(
   const { signal, onProgress } = options
   throwIfAborted(signal)
   // ブラウザが読めない HEIC は decodeImage が libheif に回す
-  const bitmap = await decodeImage(file)
+  const bitmap = await decodeImage(file, signal)
   try {
     throwIfAborted(signal)
     onProgress?.(0.2)

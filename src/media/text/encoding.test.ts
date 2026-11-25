@@ -5,6 +5,7 @@ import {
   decodeBytes,
   detectEncoding,
   encodeText,
+  encodeTextInSlices,
   findUnrepresentable,
   looksBinary,
   supportsBom,
@@ -128,6 +129,64 @@ describe('encodeText', () => {
     const at = (text: string) => findUnrepresentable(text, 'shift_jis').map(({ line, column }) => [line, column])
     expect(at('a\rb\nc\r\n😀')).toEqual([[4, 1]])
     expect(at('\n\n😀')).toEqual([[3, 1]])
+  })
+
+  test('表せない文字の一覧と置き換えは、1 文字ずつ素直に見た結果と一致する（速くした走査の確かめ）', () => {
+    // 速くする前の実装と同じ考え方: コードポイントごとに見て、CRLF は 1 つの改行として数える
+    const reference = (text: string, encoding: 'shift_jis' | 'utf-8') => {
+      const found = new Map<number, { char: string; codePoint: number; count: number; line: number; column: number }>()
+      let out = ''
+      let [line, column, previous] = [1, 0, '']
+      for (const char of text) {
+        if (previous === '\r' && char === '\n') {
+          previous = char
+          out += char
+          continue
+        }
+        if (previous === '\r' || previous === '\n') [line, column] = [line + 1, 0]
+        column++
+        previous = char
+        const lone = char.length === 1 && char.charCodeAt(0) >= 0xd800 && char.charCodeAt(0) <= 0xdfff
+        const ok = !lone && (encoding === 'utf-8' || char.charCodeAt(0) < 0x80 || findUnrepresentable(char, encoding).length === 0)
+        if (ok) {
+          out += char
+          continue
+        }
+        out += encoding === 'utf-8' ? '\ufffd' : '?'
+        const codePoint = char.codePointAt(0)!
+        const entry = found.get(codePoint)
+        if (entry) entry.count++
+        else found.set(codePoint, { char, codePoint, count: 1, line, column })
+      }
+      return { out, unrepresentable: [...found.values()] }
+    }
+    const char = fc.oneof(
+      fc.constantFrom('a', '\r', '\n', 'あ', '漢', '😀', 'é', '\ud800', '\udc00', '\ud83d'),
+      fc.string({ unit: 'binary', maxLength: 3 })
+    )
+    fc.assert(
+      fc.property(fc.array(char, { maxLength: 40 }), fc.constantFrom('shift_jis', 'utf-8') as fc.Arbitrary<'shift_jis' | 'utf-8'>, (chars, encoding) => {
+        const text = chars.join('')
+        const expected = reference(text, encoding)
+        expect(findUnrepresentable(text, encoding)).toEqual(expected.unrepresentable)
+        const encoded = encodeText(text, encoding, false)
+        expect(encoded.unrepresentable).toEqual(expected.unrepresentable)
+        if (encoding === 'utf-8') expect(new TextDecoder().decode(encoded.bytes)).toBe(expected.out)
+        else expect(decodeBytes(encoded.bytes, 'shift_jis').text).toBe(expected.out)
+      })
+    )
+  })
+
+  test('長い文書を区切って書いても、一度に書いたのと同じバイト列になる（区切り目に絵文字やサロゲートの組があっても）', async () => {
+    // 区切りの長さ（256K）の境目に 😀（表せない・サロゲートの組）が、次の区切りの中に 𠀋 が来るようにする
+    const text = 'a'.repeat(256 * 1024 - 1) + '😀' + 'あい漢字\r\n'.repeat(60_000) + '𠀋😀' + 'b'.repeat(1000)
+    for (const encoding of ['shift_jis', 'euc-jp'] as const) {
+      const sliced = await encodeTextInSlices(text, encoding, false)
+      const whole = encodeText(text, encoding, false)
+      expect(sliced.unrepresentable).toEqual(whole.unrepresentable)
+      expect(sliced.bytes.length).toBe(whole.bytes.length)
+      expect(sliced.bytes.every((byte, i) => byte === whole.bytes[i])).toBe(true)
+    }
   })
 
   test('どの文字コードでも、表せない文字がなければ書いて読むと元に戻る', () => {

@@ -187,82 +187,119 @@ type JapaneseEncoding = keyof typeof LIBRARY_NAMES
 
 const isJapanese = (encoding: TextEncodingName): encoding is JapaneseEncoding => encoding in LIBRARY_NAMES
 
-/** 文字ごとの判定は同じ文字の繰り返しが多いので覚えておく */
-const representableCache = new Map<JapaneseEncoding, Map<number, boolean>>()
+/**
+ * 文字ごとの判定は同じ文字の繰り返しが多いので覚えておく。
+ * 数 MB の文書を 1 文字ずつ見るので、BMP は Map ではなく配列で引く（0: 未判定・1: 表せる・2: 表せない）
+ */
+const representableCache = new Map<JapaneseEncoding, { bmp: Uint8Array; astral: Map<number, boolean> }>()
 
-function representableInJapanese(encoding: JapaneseEncoding, char: string): boolean {
-  const codePoint = char.codePointAt(0)!
-  let cache = representableCache.get(encoding)
-  if (!cache) representableCache.set(encoding, (cache = new Map()))
-  const known = cache.get(codePoint)
-  if (known !== undefined) return known
-  let ok: boolean
+function judgeInJapanese(encoding: JapaneseEncoding, codePoint: number): boolean {
   try {
-    const bytes = Encoding.convert(Encoding.stringToCode(char), {
+    const bytes = Encoding.convert(Encoding.stringToCode(String.fromCodePoint(codePoint)), {
       to: LIBRARY_NAMES[encoding],
       from: 'UNICODE',
       type: 'array',
       fallback: 'error',
     })
     // JIS X 0212（ESC $ ( D）は ISO-2022-JP の範囲外で、ブラウザもメールソフトもほぼ読めない
-    ok = !(encoding === 'iso-2022-jp' && bytes.some((b, i) => b === 0x1b && bytes[i + 1] === 0x24 && bytes[i + 2] === 0x28))
+    return !(encoding === 'iso-2022-jp' && bytes.some((b, i) => b === 0x1b && bytes[i + 1] === 0x24 && bytes[i + 2] === 0x28))
   } catch {
-    ok = false
+    return false
   }
-  cache.set(codePoint, ok)
-  return ok
 }
 
-const isLoneSurrogate = (char: string) => {
-  const c = char.charCodeAt(0)
-  return char.length === 1 && c >= 0xd800 && c <= 0xdfff
+function representableInJapanese(encoding: JapaneseEncoding): (codePoint: number) => boolean {
+  let cache = representableCache.get(encoding)
+  if (!cache) representableCache.set(encoding, (cache = { bmp: new Uint8Array(0x10000), astral: new Map() }))
+  const { bmp, astral } = cache
+  return (codePoint) => {
+    if (codePoint < 0x10000) {
+      const known = bmp[codePoint]
+      if (known !== 0) return known === 1
+      const ok = judgeInJapanese(encoding, codePoint)
+      bmp[codePoint] = ok ? 1 : 2
+      return ok
+    }
+    let ok = astral.get(codePoint)
+    if (ok === undefined) astral.set(codePoint, (ok = judgeInJapanese(encoding, codePoint)))
+    return ok
+  }
 }
 
 /**
- * 表せない文字を数え、置き換えた文字列を作る。ASCII はどの文字コードでも表せるので素通しする。
- * 対応の取れないサロゲート（壊れた UTF-16）はどの文字コードでも正しく書けないので報告に含める
+ * 表せない文字を数え、置き換えた文字列を作る（build=false なら数えるだけ）。ASCII はどの文字コードでも表せるので素通しする。
+ * 対応の取れないサロゲート（壊れた UTF-16）はどの文字コードでも正しく書けないので報告に含める。
+ * 数 MB の文書でも画面を止めないよう、文字列の反復子は使わず UTF-16 の単位で見て、置き換えるところだけ切り貼りする
  */
 function sanitize(
   text: string,
-  canRepresent: (char: string) => boolean,
-  substitute: string
+  canRepresent: (codePoint: number) => boolean,
+  substitute: string,
+  build = true
 ): { text: string; unrepresentable: UnrepresentableChar[] } {
   const found = new Map<number, UnrepresentableChar>()
-  let out = ''
-  let changed = false
+  const parts: string[] = []
+  let copied = 0
   let line = 1
   let column = 0
-  let previous = ''
-  for (const char of text) {
+  let previous = -1
+  for (let i = 0; i < text.length; ) {
+    const unit = text.charCodeAt(i)
     // 位置は「改行の直後から数え直す」。CRLF は 1 つの改行として扱う
-    if (previous === '\r' && char === '\n') {
-      previous = char
-      out += char
+    if (previous === 0x0d && unit === 0x0a) {
+      previous = unit
+      i++
       continue
     }
-    if (previous === '\r' || previous === '\n') {
+    if (previous === 0x0d || previous === 0x0a) {
       line++
       column = 0
     }
     column++
-    previous = char
-    if (char.charCodeAt(0) < 0x80 || (!isLoneSurrogate(char) && canRepresent(char))) {
-      out += char
+    previous = unit
+    if (unit < 0x80) {
+      i++
       continue
     }
-    changed = true
-    out += substitute
-    const codePoint = char.codePointAt(0)!
+    let codePoint = unit
+    let width = 1
+    let lone = false
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const low = text.charCodeAt(i + 1)
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        codePoint = (unit - 0xd800) * 0x400 + (low - 0xdc00) + 0x10000
+        width = 2
+      } else lone = true
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) lone = true
+    if (!lone && canRepresent(codePoint)) {
+      i += width
+      continue
+    }
+    if (build) {
+      parts.push(text.slice(copied, i), substitute)
+      copied = i + width
+    }
     const entry = found.get(codePoint)
     if (entry) entry.count++
-    else found.set(codePoint, { char, codePoint, count: 1, line, column })
+    else found.set(codePoint, { char: text.slice(i, i + width), codePoint, count: 1, line, column })
+    i += width
   }
-  return { text: changed ? out : text, unrepresentable: [...found.values()] }
+  if (parts.length === 0) return { text, unrepresentable: [...found.values()] }
+  parts.push(text.slice(copied))
+  return { text: parts.join(''), unrepresentable: [...found.values()] }
+}
+
+/** 壊れたサロゲートがないか。あれば Unicode 系でも 1 文字ずつ見る必要がある */
+const isWellFormed = (text: string): boolean => {
+  const native = (text as { isWellFormed?: () => boolean }).isWellFormed
+  return native ? native.call(text) : false
 }
 
 /** 書き出すと失われる文字だけを調べる。書き出す前に画面で知らせるために使う */
 export function findUnrepresentable(text: string, encoding: TextEncodingName): UnrepresentableChar[] {
-  return encodeText(text, encoding, false).unrepresentable
+  if (isJapanese(encoding)) return sanitize(text, representableInJapanese(encoding), '?', false).unrepresentable
+  if (isWellFormed(text)) return []
+  return sanitize(text, () => true, '\ufffd', false).unrepresentable
 }
 
 /**
@@ -273,17 +310,14 @@ export function encodeText(text: string, encoding: TextEncodingName, bom: boolea
   const prefix = bom && supportsBom(encoding) ? BOMS[encoding]! : []
 
   if (isJapanese(encoding)) {
-    const { text: safe, unrepresentable } = sanitize(text, (c) => representableInJapanese(encoding, c), '?')
-    const body = Encoding.convert(Encoding.stringToCode(safe), {
-      to: LIBRARY_NAMES[encoding],
-      from: 'UNICODE',
-      type: 'array',
-    })
-    return { bytes: new Uint8Array(body), unrepresentable }
+    const { text: safe, unrepresentable } = sanitize(text, representableInJapanese(encoding), '?')
+    return { bytes: japaneseBytes(safe, encoding), unrepresentable }
   }
 
   // Unicode 系で表せないのは壊れたサロゲートだけ
-  const { text: safe, unrepresentable } = sanitize(text, () => true, '\ufffd')
+  const { text: safe, unrepresentable } = isWellFormed(text)
+    ? { text, unrepresentable: [] }
+    : sanitize(text, () => true, '\ufffd')
   if (encoding === 'utf-8') {
     const body = new TextEncoder().encode(safe)
     const bytes = new Uint8Array(prefix.length + body.length)
@@ -297,6 +331,49 @@ export function encodeText(text: string, encoding: TextEncodingName, bom: boolea
   const view = new DataView(bytes.buffer)
   const littleEndian = encoding === 'utf-16le'
   for (let i = 0; i < safe.length; i++) view.setUint16(prefix.length + i * 2, safe.charCodeAt(i), littleEndian)
+  return { bytes, unrepresentable }
+}
+
+function japaneseBytes(text: string, encoding: JapaneseEncoding): Uint8Array {
+  return new Uint8Array(Encoding.convert(Encoding.stringToCode(text), { to: LIBRARY_NAMES[encoding], from: 'UNICODE', type: 'array' }))
+}
+
+/** 区切って変換する長さ（UTF-16 の単位）。1 回あたり数 ms に収まる */
+const SLICE_LENGTH = 256 * 1024
+
+/**
+ * encodeText と同じ結果を、長い文書では区切りながら作る。Shift_JIS・EUC-JP への変換（encoding-japanese）は
+ * 5MB ほどの文書で 100ms を超えて画面を止めるので、区切りごとに一息ついて画面の描画と中断を挟む。
+ * どちらも状態を持たない文字コードなので、文字の途中で切らなければ区切っても同じバイト列になる。
+ * ISO-2022-JP は切り替えの状態を持つので区切らない（メール用で長い文書はまずない）
+ */
+export async function encodeTextInSlices(
+  text: string,
+  encoding: TextEncodingName,
+  bom: boolean,
+  signal?: AbortSignal
+): Promise<EncodedText> {
+  if ((encoding !== 'shift_jis' && encoding !== 'euc-jp') || text.length <= SLICE_LENGTH) {
+    return encodeText(text, encoding, bom)
+  }
+  const { text: safe, unrepresentable } = sanitize(text, representableInJapanese(encoding), '?')
+  const slices: Uint8Array[] = []
+  for (let start = 0; start < safe.length; ) {
+    let end = Math.min(safe.length, start + SLICE_LENGTH)
+    // サロゲートの組を割らない
+    const last = safe.charCodeAt(end - 1)
+    if (end < safe.length && last >= 0xd800 && last <= 0xdbff) end--
+    slices.push(japaneseBytes(safe.slice(start, end), encoding))
+    start = end
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    signal?.throwIfAborted()
+  }
+  const bytes = new Uint8Array(slices.reduce((sum, slice) => sum + slice.length, 0))
+  let offset = 0
+  for (const slice of slices) {
+    bytes.set(slice, offset)
+    offset += slice.length
+  }
   return { bytes, unrepresentable }
 }
 
