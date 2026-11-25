@@ -12,21 +12,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { solidOnClass } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 
-/** サイドバーの小さな部品。動画画面の Sidebar.tsx と同じ見た目にそろえる */
-
-/** 名前と値を左右に振り分けた 1 行 */
-export function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className="shrink-0 text-muted-foreground">{label}</dt>
-      <dd className="truncate text-right">{children}</dd>
-    </div>
-  )
-}
-
-export function Facts({ children }: { children: ReactNode }) {
-  return <dl className="flex flex-col gap-1 text-xs">{children}</dl>
-}
+/** テキスト画面だけで使う小さな部品。共通の部品は src/components/SidebarParts.tsx にある */
 
 /** 項目の名前（左）と操作（右）を 1 行に置く */
 export function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -112,37 +98,6 @@ export function Segmented<T extends string>({
         </ToggleGroupItem>
       ))}
     </ToggleGroup>
-  )
-}
-
-export function Check({
-  checked,
-  onChange,
-  children,
-}: {
-  checked: boolean
-  onChange: (checked: boolean) => void
-  children: ReactNode
-}) {
-  return (
-    <label className="flex cursor-pointer items-start gap-2 text-xs">
-      <input
-        type="checkbox"
-        className="mt-0.5 size-3.5 shrink-0 accent-black"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span>{children}</span>
-    </label>
-  )
-}
-
-/** 保存の前に気づいてほしいこと */
-export function Warning({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-[11px] leading-normal text-destructive">
-      {children}
-    </div>
   )
 }
 

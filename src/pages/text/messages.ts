@@ -15,10 +15,7 @@ export const textMessages = defineMessages({
     tooLargeBody: (limit: string) => `テキストとして開けるのは ${limit} までです。`,
     largeNotice: '大きなファイルなので、文字のチェックや下見の更新を間引いています。',
 
-    stepInput: '入力',
     stepView: '表示',
-    stepTools: '道具',
-    stepOutput: '保存の形式',
     newDocument: '新規',
     newDocumentHint: '空の文書です。書いてから「別名で保存」で保存します。テキストを貼り付けて開くこともできます。',
     factSize: 'サイズ',
@@ -30,7 +27,6 @@ export const textMessages = defineMessages({
     newlineMixed: (detail: string) => `混在（${detail}）`,
     decodeErrors: '読めないバイトがあり、� に置き換えて表示しています。保存するとその部分は失われます。',
     forcedBinary: 'バイナリらしいファイルをテキストとして開いています。保存すると中身が壊れます。',
-    discardConfirm: '保存していない変更があります。破棄してほかのファイルを開きますか？',
 
     language: '言語',
     plainText: 'プレーンテキスト',
@@ -42,7 +38,6 @@ export const textMessages = defineMessages({
     halfwidthAscii: '全角英数字を半角に',
     fullwidthKana: '半角カナを全角に',
     noChange: '変わるところはありませんでした',
-    jsonTools: 'JSON',
     jsonFormat: '整形',
     jsonMinify: '圧縮',
     jsonIndent: '字下げ',
@@ -81,7 +76,6 @@ export const textMessages = defineMessages({
     replaceUnrepresentable: '表せない文字を ? にして保存する',
     unrepresentableError: (count: number, encoding: string) =>
       `${encoding} で表せない文字が ${count} 種類あるため保存しませんでした。文字コードを変えるか、? に置き換える設定にしてください。`,
-    downloaded: (name: string) => `${name} をダウンロードしました`,
     status: (line: number, column: number) => `${line} 行 ${column} 列`,
     selected: (count: number) => `${count} 文字選択`,
     editorPhrases: {
@@ -121,10 +115,7 @@ export const textMessages = defineMessages({
     tooLargeBody: (limit: string) => `Text files up to ${limit} can be opened.`,
     largeNotice: 'This is a large file, so character checks and previews update less often.',
 
-    stepInput: 'Input',
     stepView: 'View',
-    stepTools: 'Tools',
-    stepOutput: 'Save format',
     newDocument: 'New',
     newDocumentHint: 'An empty document. Write, then save it with “Save as”. You can also paste text to open it.',
     factSize: 'Size',
@@ -136,7 +127,6 @@ export const textMessages = defineMessages({
     newlineMixed: (detail: string) => `Mixed (${detail})`,
     decodeErrors: 'Some bytes could not be decoded and are shown as �. They will be lost when you save.',
     forcedBinary: 'A file that looks binary is open as text. Saving it will corrupt it.',
-    discardConfirm: 'You have unsaved changes. Discard them and open another file?',
 
     language: 'Language',
     plainText: 'Plain text',
@@ -148,7 +138,6 @@ export const textMessages = defineMessages({
     halfwidthAscii: 'Full-width letters to half-width',
     fullwidthKana: 'Half-width kana to full-width',
     noChange: 'Nothing to change',
-    jsonTools: 'JSON',
     jsonFormat: 'Format',
     jsonMinify: 'Minify',
     jsonIndent: 'Indent',
@@ -187,7 +176,6 @@ export const textMessages = defineMessages({
     replaceUnrepresentable: 'Save them as ?',
     unrepresentableError: (count: number, encoding: string) =>
       `Not saved: ${count} kinds of characters cannot be written in ${encoding}. Choose another encoding or allow replacing them with ?.`,
-    downloaded: (name: string) => `Downloaded ${name}`,
     status: (line: number, column: number) => `Ln ${line}, Col ${column}`,
     selected: (count: number) => `${count} selected`,
     // CodeMirror の既定の文言が英語なので、英語では差し替えない

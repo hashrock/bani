@@ -1,6 +1,7 @@
 import { ChevronRight, File as FileIcon, Folder, FolderOpen, Lock } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import type { ArchiveTreeNode } from '../../media/archive'
 import { useI18n } from '../../i18n/context'
@@ -31,7 +32,7 @@ interface EntryTreeProps {
   renderActions?: (node: ArchiveTreeNode) => ReactNode
 }
 
-/** 一部だけ選ばれているフォルダは indeterminate で示す（属性では書けないので DOM に直接入れる） */
+/** 一部だけ選ばれているフォルダは indeterminate（横線）で示す */
 function Check({ state, disabled, label, onToggle }: {
   state: CheckState
   disabled?: boolean
@@ -39,18 +40,14 @@ function Check({ state, disabled, label, onToggle }: {
   onToggle: () => void
 }) {
   return (
-    <input
-      type="checkbox"
-      className="size-3.5 shrink-0 accent-primary"
+    <Checkbox
+      className="size-3.5 [&_svg]:size-3"
       // 行そのものがフォーカスを持つので、チェックはタブ移動の対象から外す
       tabIndex={-1}
       aria-label={label}
-      checked={state === 'all'}
+      checked={state === 'all' ? true : state === 'some' ? 'indeterminate' : false}
       disabled={disabled}
-      ref={(el) => {
-        if (el) el.indeterminate = state === 'some'
-      }}
-      onChange={onToggle}
+      onCheckedChange={onToggle}
       onClick={(e) => e.stopPropagation()}
     />
   )
@@ -117,7 +114,8 @@ export function EntryTree({
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.target instanceof HTMLInputElement && e.target.type !== 'checkbox') return
+    // 名前の変更の入力欄では、文字の入力に任せる
+    if (e.target instanceof HTMLInputElement) return
     const mod = e.metaKey || e.ctrlKey
     if (mod && e.key.toLowerCase() === 'a') {
       e.preventDefault()

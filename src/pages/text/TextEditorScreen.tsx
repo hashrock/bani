@@ -1,3 +1,4 @@
+import { undo as undoEditor, redo as redoEditor } from '@codemirror/commands'
 import { openSearchPanel } from '@codemirror/search'
 import type { Text } from '@codemirror/state'
 import type { EditorView, ViewUpdate } from '@codemirror/view'
@@ -5,15 +6,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { useReportUnsaved } from '../../app/leaveGuard'
 import { SidebarHead } from '../../components/BrandMark'
 import { SaveButton } from '../../components/SaveButton'
-import { SourceName } from '../../components/SidebarParts'
+import { CheckboxField, Fact, Facts, Notice, SourceName } from '../../components/SidebarParts'
 import { Step, StepHint } from '../../components/Step'
 import { Button } from '@/components/ui/button'
 import { pickFiles } from '../../core/opened'
 import type { OpenedFile } from '../../core/opened'
 import type { SaveMethod } from '../../core/save'
+import { useHotkey } from '../../core/useHotkey'
 import { usePersistentState } from '../../core/usePersistentState'
+import { useSave } from '../../core/useSave'
+import type { SaveRendered, WrittenMethod } from '../../core/useSave'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import type { BomSetting, NewlineCounts, NewlineSetting, TextRecipe } from '../../media/text'
@@ -46,10 +51,8 @@ import { ENCODING_LABELS, NEWLINE_LABELS } from './labels'
 import { parseMarkdown } from './markdown'
 import { MarkdownPreview } from './MarkdownPreview'
 import { textMessages } from './messages'
-import { Check, Choice, Fact, Facts, Field, Segmented, ToolButton, Warning } from './parts'
+import { Choice, Field, Segmented, ToolButton } from './parts'
 import { shiftTimingLines } from './subtitle'
-import type { TextRendered } from './useTextSave'
-import { useTextSave } from './useTextSave'
 
 /** 開くときに決まっていること。EditPage がファイルを読んで作る */
 export interface InitialDocument {
@@ -79,7 +82,7 @@ const DEFAULT_PREFS: TextPrefs = { wrap: false, markdownPreview: true, trimOnSav
 const LARGE_TEXT = 2_000_000
 
 /** 保存したもの。保存できたあと、これを新しい基準にする */
-interface RenderedDocument extends TextRendered {
+interface RenderedDocument extends SaveRendered {
   prepared: PreparedText
   /** 保存した時点の本文（保存中に打った分と区別する） */
   doc: Text
@@ -99,13 +102,15 @@ interface TextEditorScreenProps {
   isDragging: boolean
   onFiles: (files: OpenedFile[]) => void
   onNew: () => void
+  /** 保存していない変更があるか（App が開き直す前・閉じる前に確かめる） */
+  onDirtyChange: (dirty: boolean) => void
 }
 
 /**
  * テキスト・コードの編集画面。本文と取り消しの履歴は CodeMirror が持ち、
  * この画面は「どう書くか」（文字コード・BOM・改行・字幕の形式）と保存の基準を持つ
  */
-export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEditorScreenProps) {
+export function TextEditorScreen({ initial, isDragging, onFiles, onNew, onDirtyChange }: TextEditorScreenProps) {
   const m = useLocalMessages(textMessages)
   const { t } = useI18n()
   const [base, setBase] = useState(initial.base)
@@ -195,16 +200,8 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
     }
   }, [modified, displayName])
 
-  // 保存していない変更があるときだけ、閉じる・再読み込みの前に確かめる
-  useEffect(() => {
-    if (!modified) return
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ''
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [modified])
+  // 保存していない変更は App に知らせ、開き直す・閉じる前に確かめてもらう
+  useReportUnsaved(modified, onDirtyChange)
 
   /** 本文を差し替える。変わった範囲だけを渡すので、取り消し 1 回で元に戻り、カーソルも飛ばない */
   const replaceDoc = useCallback(
@@ -264,14 +261,16 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
       }
       const doc = view.state.doc
       const prepared = prepareText(doc.toString(), { ...base, name: suggestedName }, recipe, subtitleTarget)
+      // コピーは文字コードにする前の文字列を渡す（Shift_JIS の Blob を UTF-8 として読むと化ける）
+      const copy = { text: prepared.editorText }
       if (method === 'copyToClipboard') {
-        return { blob: null, filename: prepared.filename, copyText: prepared.editorText, prepared, doc, lossy: false }
+        return { blob: new Blob([prepared.editorText], { type: 'text/plain' }), filename: prepared.filename, copy, prepared, doc, lossy: false }
       }
       const encoded = encodePrepared(prepared, { replaceUnrepresentable })
       return {
         blob: encoded.blob,
         filename: prepared.filename,
-        copyText: prepared.editorText,
+        copy,
         prepared,
         doc,
         lossy: encoded.unrepresentable.length > 0,
@@ -281,8 +280,10 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
   )
 
   const handleSaved = useCallback(
-    (rendered: RenderedDocument, target: { handle: FileSystemFileHandle | null; name: string }) => {
+    (_method: WrittenMethod, savedHandle: FileSystemFileHandle | null, rendered: RenderedDocument) => {
       if (!view) return
+      // ダウンロードになったときは、ブラウザに渡した名前で保存されたものとみなす
+      const target = { handle: savedHandle, name: savedHandle?.name ?? rendered.filename }
       const { prepared, doc } = rendered
       let savedDoc = doc
       // 字幕の形式を変えて保存したら、エディタも保存した形式の本文にする（保存中に打っていなければ）
@@ -298,7 +299,7 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
       setRecipe(DEFAULT_TEXT_RECIPE)
       setSubtitleTarget(nextBase.subtitle)
       setReplaceUnrepresentable(false)
-      setSize(rendered.blob?.size ?? null)
+      setSize(rendered.blob.size)
       if (target.handle) setHandle(target.handle)
       // 拡張子が変わったら（新規の文書に名前が付いたときなど）言語も選び直す
       if (extensionOf(target.name) !== extensionOf(suggestedName)) setLanguage(detectLanguage(nextBase))
@@ -315,25 +316,32 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
     [m, output.encoding]
   )
 
-  const save = useTextSave({
+  // テキストは劣化しないので上書きが主。保存先（別名で選んだハンドル）はこの画面が持つ
+  const save = useSave({
+    opened: null,
     handle,
+    lossless: true,
     sameFormat: !converting,
+    canCopy: true,
     disabled: !view,
     render,
     onSaved: handleSaved,
     describeError,
   })
 
-  const confirmDiscard = () => !modified || window.confirm(m.discardConfirm)
+  // エディタの外で押した ⌘Z / ⇧⌘Z も、本文の取り消し・やり直しにする（ほかの画面と同じキー）
+  useHotkey('mod+z', () => view && undoEditor(view), { enabled: !!view, repeat: true })
+  useHotkey('mod+shift+z', () => view && redoEditor(view), { enabled: !!view, repeat: true })
+  useHotkey('mod+y', () => view && redoEditor(view), { enabled: !!view, repeat: true })
 
+  // 開き直しは App が変更の有無を確かめる。新規はこの画面の中で作り直すので、ここで確かめる
   const handlePick = async () => {
-    if (!confirmDiscard()) return
     const picked = await pickFiles({})
     if (picked.length > 0) onFiles(picked)
   }
 
   const handleNew = () => {
-    if (confirmDiscard()) onNew()
+    if (!modified || window.confirm(t.discardConfirm)) onNew()
   }
 
   const editRecipe = (edit: Parameters<typeof applyTextEdit>[1]) => setRecipe((prev) => applyTextEdit(prev, edit))
@@ -368,7 +376,7 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
         <SidebarHead />
 
         <div className="sidebar-scroll">
-          <Step index={1} title={m.stepInput}>
+          <Step index={1} title={t.stepInput}>
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-1.5">
                 {modified && (
@@ -389,8 +397,8 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
                   <Fact label={m.factLines}>{cursor.lines.toLocaleString()}</Fact>
                 </Facts>
               )}
-              {initial.decodeErrors && <Warning>{m.decodeErrors}</Warning>}
-              {initial.forcedBinary && <Warning>{m.forcedBinary}</Warning>}
+              {initial.decodeErrors && <Notice tone="warn">{m.decodeErrors}</Notice>}
+              {initial.forcedBinary && <Notice tone="warn">{m.forcedBinary}</Notice>}
               {large && <StepHint>{m.largeNotice}</StepHint>}
             </div>
             <div className="flex gap-1.5">
@@ -413,17 +421,17 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
                 className="w-40"
               />
             </Field>
-            <Check checked={prefs.wrap} onChange={(wrap) => updatePrefs({ wrap })}>
+            <CheckboxField checked={prefs.wrap} onChange={(wrap) => updatePrefs({ wrap })}>
               {m.wrap}
-            </Check>
+            </CheckboxField>
             {language === 'markdown' && (
-              <Check checked={prefs.markdownPreview} onChange={(markdownPreview) => updatePrefs({ markdownPreview })}>
+              <CheckboxField checked={prefs.markdownPreview} onChange={(markdownPreview) => updatePrefs({ markdownPreview })}>
                 {m.markdownPreview}
-              </Check>
+              </CheckboxField>
             )}
           </Step>
 
-          <Step index={3} title={m.stepTools}>
+          <Step index={3} title={t.stepEdit}>
             {language === 'json' && (
               <div className="flex flex-col gap-2 rounded-md bg-muted px-3 py-2.5">
                 <Field label={m.jsonIndent}>
@@ -511,7 +519,7 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
             </div>
           </Step>
 
-          <Step index={4} title={m.stepOutput}>
+          <Step index={4} title={t.stepOutput}>
             {base.subtitle && subtitleTarget && (
               <>
                 <Field label={m.subtitleFormat}>
@@ -529,7 +537,7 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
                   <StepHint>{m.subtitleConvertHint(base.subtitle.toUpperCase(), subtitleTarget.toUpperCase())}</StepHint>
                 )}
                 {converting && subtitles && subtitles.errors.length > 0 && (
-                  <Warning>{m.subtitleDropped(subtitles.errors.length)}</Warning>
+                  <Notice tone="warn">{m.subtitleDropped(subtitles.errors.length)}</Notice>
                 )}
               </>
             )}
@@ -572,11 +580,11 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
             {base.newlineDetected === 'mixed' && recipe.newline === 'keep' && (
               <StepHint>{m.mixedWillUnify(NEWLINE_LABELS[base.newline])}</StepHint>
             )}
-            <Check checked={prefs.trimOnSave} onChange={(trimOnSave) => updatePrefs({ trimOnSave })}>
+            <CheckboxField checked={prefs.trimOnSave} onChange={(trimOnSave) => updatePrefs({ trimOnSave })}>
               {m.trimOnSave}
-            </Check>
+            </CheckboxField>
             {unrepresentable.length > 0 && (
-              <Warning>
+              <Notice tone="warn">
                 <div className="mb-1 font-semibold">
                   {m.unrepresentable(unrepresentable.length, ENCODING_LABELS[output.encoding])}
                 </div>
@@ -599,11 +607,11 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew }: TextEd
                   {unrepresentable.length > 5 && <li>{m.unrepresentableMore(unrepresentable.length - 5)}</li>}
                 </ul>
                 <div className="mt-2 text-foreground">
-                  <Check checked={replaceUnrepresentable} onChange={setReplaceUnrepresentable}>
+                  <CheckboxField checked={replaceUnrepresentable} onChange={setReplaceUnrepresentable}>
                     {m.replaceUnrepresentable}
-                  </Check>
+                  </CheckboxField>
                 </div>
-              </Warning>
+              </Notice>
             )}
           </Step>
         </div>

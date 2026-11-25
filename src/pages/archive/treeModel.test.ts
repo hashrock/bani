@@ -5,11 +5,11 @@ import {
   archiveBaseName,
   checkState,
   checkStates,
-  downloadNames,
   extractionPaths,
   filesUnder,
   flattenVisible,
   foldersUnder,
+  isMacJunk,
   planExtractLayout,
   planFolderRename,
   planMove,
@@ -194,15 +194,6 @@ describe('移動と名前の変更', () => {
 })
 
 describe('展開先の名前', () => {
-  it('ダウンロードの名前は重なれば番号を振る', () => {
-    expect(downloadNames(['a/x.txt', 'b/x.txt', 'X.txt', 'y.tar.gz'])).toEqual([
-      'x.txt',
-      'x (2).txt',
-      'X (3).txt',
-      'y.tar.gz',
-    ])
-  })
-
   it('1 つのフォルダに収まるものはそのフォルダを作って入れる', () => {
     expect(planExtractLayout(['p/a.txt', 'p/q/b.txt'], 'arc')).toEqual({
       folder: 'p',
@@ -234,5 +225,21 @@ describe('展開先の名前', () => {
     expect(archiveBaseName('photos.tar.gz')).toBe('photos')
     expect(archiveBaseName('x.ZIP')).toBe('x')
     expect(archiveBaseName('.zip')).toBe('.zip')
+  })
+})
+
+describe('isMacJunk', () => {
+  it('macOS の付随ファイルを見分ける', () => {
+    expect(isMacJunk('__MACOSX/a/._b.txt')).toBe(true)
+    expect(isMacJunk('__MACOSX/')).toBe(true)
+    expect(isMacJunk('photos/._IMG_0001.jpg')).toBe(true)
+    expect(isMacJunk('photos/.DS_Store')).toBe(true)
+  })
+
+  it('ふつうのファイル・隠しファイルは残す', () => {
+    expect(isMacJunk('photos/IMG_0001.jpg')).toBe(false)
+    expect(isMacJunk('.gitignore')).toBe(false)
+    expect(isMacJunk('MACOSX/a.txt')).toBe(false)
+    expect(isMacJunk('a._b.txt')).toBe(false)
   })
 })
