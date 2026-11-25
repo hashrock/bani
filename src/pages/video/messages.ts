@@ -3,7 +3,6 @@ import { defineMessages } from '../../i18n/local'
 /** 動画の編集画面だけで使う文言 */
 export const videoMessages = defineMessages({
   ja: {
-    stepEdit: '編集',
     rotateLeft: '左に 90° 回転',
     rotateRight: '右に 90° 回転',
     flipH: '左右反転',
@@ -15,7 +14,6 @@ export const videoMessages = defineMessages({
     cropArea: '切り抜き範囲',
     mute: '音声を消す',
     noAudio: '音声トラックがありません',
-    resetEdits: '編集をすべて取り消す',
     editedSize: '編集後',
     stepMoreExports: 'そのほかの書き出し',
     frameTitle: 'いまのフレームを画像に',
@@ -30,7 +28,6 @@ export const videoMessages = defineMessages({
     frameFailed: (message: string) => `フレームを画像にできませんでした: ${message}`,
   },
   en: {
-    stepEdit: 'Edit',
     rotateLeft: 'Rotate 90° left',
     rotateRight: 'Rotate 90° right',
     flipH: 'Flip horizontally',
@@ -42,7 +39,6 @@ export const videoMessages = defineMessages({
     cropArea: 'Crop area',
     mute: 'Remove audio',
     noAudio: 'No audio track',
-    resetEdits: 'Undo all edits',
     editedSize: 'After edits',
     stepMoreExports: 'More exports',
     frameTitle: 'Current frame as image',

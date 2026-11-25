@@ -1,16 +1,17 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useReportUnsaved } from '../../app/leaveGuard'
 import { BottomBar } from '../../components/BottomBar'
 import { FileUpload } from '../../components/FileUpload'
 import { Sidebar } from '../../components/Sidebar'
 import { VideoPreview } from '../../components/VideoPreview'
-import { usePersistentState } from '../../core/usePersistentState'
+import { useRememberedChoice } from '../../core/usePersistentState'
 import { useSave } from '../../core/useSave'
 import { useConversionJob } from '../../hooks/useConversionJob'
 import { useMediaInfo } from '../../hooks/useMediaInfo'
 import { useSizeEstimate } from '../../hooks/useSizeEstimate'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
-import { DEFAULT_VIDEO_OUTPUT, editedSize } from '../../media/video'
+import { DEFAULT_VIDEO_OUTPUT, defaultVideoOutput, editedSize } from '../../media/video'
 import type { VideoOutput, VideoRecipe } from '../../media/video'
 import { createAbortError } from '../../utils/abort'
 import type { EditPageProps } from '../types'
@@ -27,11 +28,13 @@ const resultKey = (recipe: VideoRecipe, output: VideoOutput) => JSON.stringify([
  * 動画 1 本を開き、編集（レシピ）と出力設定を決めて書き出す画面。
  * レシピは取り消し・やり直しの履歴で持ち、出力設定は別のファイルを開いても残す。
  */
-export function VideoEditPage({ opened, isDragging, onFiles }: EditPageProps) {
+export function VideoEditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange }: EditPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(videoMessages)
   const file = opened?.file ?? null
-  const [output, setOutput] = usePersistentState<VideoOutput>('video.output', DEFAULT_VIDEO_OUTPUT)
+  // 出力形式は、選ぶまでは元と同じ入れ物（MP4 / WebM）。選んだら別のファイルを開いても残す
+  const derivedOutput = useMemo(() => (file ? defaultVideoOutput(file) : DEFAULT_VIDEO_OUTPUT), [file])
+  const [output, setOutput, resetOutput] = useRememberedChoice<VideoOutput>('video.output', derivedOutput)
   const edits = useVideoRecipe()
   // 尺と寸法がわかったら、レシピを新しいファイルの全体に合わせて作り直す
   const media = useMediaInfo(file, edits.resetFor)
@@ -73,8 +76,10 @@ export function VideoEditPage({ opened, isDragging, onFiles }: EditPageProps) {
       if (!result) throw createAbortError('Conversion did not finish')
       return { blob: result.blob, filename: result.filename }
     },
-    onSourceReplaced: (next) => onFiles([next]),
+    onSaved: edits.markSaved,
+    onSourceReplaced: onReopen,
   })
+  useReportUnsaved(edits.dirty, onDirtyChange)
 
   const size = media ? editedSize(media, recipe) : null
 
@@ -111,7 +116,7 @@ export function VideoEditPage({ opened, isDragging, onFiles }: EditPageProps) {
         }
         onFileSelect={(selected) => onFiles([selected])}
         // 出力設定だけを戻す。編集は「編集をすべて取り消す」で戻す（こちらは取り消せる）
-        onResetSettings={() => setOutput(DEFAULT_VIDEO_OUTPUT)}
+        onResetSettings={resetOutput}
         previewEstimate={previewEstimate}
         converting={job.running}
         progress={job.progress}
@@ -178,7 +183,6 @@ export function VideoEditPage({ opened, isDragging, onFiles }: EditPageProps) {
             stale={stale}
             onConvert={() => void convert()}
             onCancel={job.cancel}
-            save={save}
           />
         )}
       </div>

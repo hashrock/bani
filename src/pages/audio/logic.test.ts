@@ -7,6 +7,7 @@ import { audioInfoWith } from '../../media/audio/testFixtures'
 import type { AudioFormat, AudioRecipe } from '../../media/audio/types'
 import {
   bitrateChoices,
+  defaultAudioOutput,
   columnPeaks,
   effectiveRecipe,
   isSameAudioFormat,
@@ -64,6 +65,21 @@ describe('isSameAudioFormat', () => {
     for (const format of AUDIO_FORMAT_LIST) {
       expect(same(`a.${AUDIO_FORMATS[format].extension}`, null, format)).toBe(false)
     }
+  })
+})
+
+describe('defaultAudioOutput', () => {
+  const all = Object.fromEntries(AUDIO_FORMAT_LIST.map((format) => [format, true])) as Record<AudioFormat, boolean>
+
+  test('元と同じ形式を書き出せるならそれにする', () => {
+    expect(defaultAudioOutput({ name: 'a.wav', type: '', codec: 'pcm-s16' }, all).format).toBe('wav')
+    expect(defaultAudioOutput({ name: 'a.flac', type: '', codec: 'flac' }, all).format).toBe('flac')
+    expect(defaultAudioOutput({ name: 'a.mp3', type: '', codec: 'mp3' }, all).format).toBe('mp3')
+  })
+
+  test('書き出せない・同じ形式がないときは MP3', () => {
+    expect(defaultAudioOutput({ name: 'a.m4a', type: '', codec: 'aac' }, { ...all, m4a: false }).format).toBe('mp3')
+    expect(defaultAudioOutput({ name: 'a.wav', type: '', codec: 'pcm-s24' }, all).format).toBe('mp3')
   })
 })
 

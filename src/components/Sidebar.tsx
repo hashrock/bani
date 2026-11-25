@@ -1,13 +1,11 @@
 import { useState } from 'react'
-import { pickFiles } from '../core/opened'
-import type { SaveState } from '../core/useSave'
-import { SaveButton } from './SaveButton'
-import type { OpenedFile } from '../core/opened'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Progress } from '@/components/ui/progress'
-import { cn } from '@/lib/utils'
+import { pickFiles } from '../core/opened'
+import type { OpenedFile } from '../core/opened'
+import type { SaveState } from '../core/useSave'
+import { SaveButton } from './SaveButton'
 import { useI18n } from '../i18n/context'
 import type { VideoInfo, VideoOutput, VideoSize } from '../media/video'
 import { trimDuration } from '../state/trim'
@@ -17,7 +15,16 @@ import { SidebarHead } from './BrandMark'
 import { Caret } from './Caret'
 import { CompatibilityList } from './CompatibilityList'
 import { OutputSteps } from './OutputSteps'
-import { ResetSettingsButton, SourceName } from './SidebarParts'
+import {
+  EstimateBox,
+  EstimateRow,
+  Fact,
+  Facts,
+  ResetSettingsButton,
+  SidebarFooter,
+  SmallButton,
+  SourceName,
+} from './SidebarParts'
 import { Step, StepHint } from './Step'
 
 interface SidebarProps {
@@ -43,20 +50,6 @@ interface SidebarProps {
   onConvert: () => void
   onCancel: () => void
   save: SaveState
-}
-
-/** 名前と値を左右に振り分けた 1 行 */
-function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="truncate text-right">{children}</dd>
-    </div>
-  )
-}
-
-function Facts({ className, children }: { className?: string; children: ReactNode }) {
-  return <dl className={cn('flex flex-col gap-1 text-xs', className)}>{children}</dl>
 }
 
 /**
@@ -135,12 +128,14 @@ export function Sidebar({
           )}
 
           <div className="flex gap-1.5">
-            <Button variant="outline" size="xs" className="h-7 px-2.5" onClick={async () => {
+            <SmallButton
+              onClick={async () => {
                 const [picked] = await pickFiles({ accept: 'video/*' })
                 if (picked) onFileSelect(picked)
-              }}>
+              }}
+            >
               {t.selectFile}
-            </Button>
+            </SmallButton>
           </div>
         </Step>
 
@@ -154,7 +149,7 @@ export function Sidebar({
         />
 
         <Step index={estimateIndex} title={t.stepEstimate}>
-          <div className="flex flex-col gap-1.5 rounded-md bg-muted px-3 py-2.5">
+          <EstimateBox>
             <EstimateRow label={t.estimatedSize}>
               {previewEstimate.isEstimating
                 ? t.estimating
@@ -165,7 +160,7 @@ export function Sidebar({
             <EstimateRow label={t.outputDuration}>
               {trimmedDuration > 0 ? formatTimecode(trimmedDuration) : '—'}
             </EstimateRow>
-          </div>
+          </EstimateBox>
 
           {previewEstimate.estimatedSize > 0 ? (
             <CompatibilityList
@@ -182,32 +177,18 @@ export function Sidebar({
         <ResetSettingsButton onClick={onResetSettings} />
       </div>
 
-      <div className="sidebar-footer">
-        {converting ? (
-          <>
-            <Progress value={progress} className="h-1" />
-            <Button variant="destructive" className="w-full" onClick={onCancel}>
-              {t.cancelWithProgress(progress)}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button className="w-full" onClick={onConvert} disabled={!file}>
-              {hasResult ? (stale ? t.reconvertLong : t.convertAgain) : t.convert}
-            </Button>
-            {hasResult && <SaveButton save={save} />}
-          </>
-        )}
-      </div>
+      {/* 動画は書き出しに時間がかかるので、変換して結果を確かめてから保存する（保存だけ押せば変換もする） */}
+      <SidebarFooter progress={converting ? progress : null} onCancel={onCancel}>
+        <Button
+          variant={hasResult && !stale ? 'outline' : 'default'}
+          className="w-full"
+          onClick={onConvert}
+          disabled={!file}
+        >
+          {hasResult ? (stale ? t.reconvertLong : t.convertAgain) : t.convert}
+        </Button>
+        <SaveButton save={save} disabled={!file} />
+      </SidebarFooter>
     </aside>
-  )
-}
-
-function EstimateRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex justify-between text-xs text-muted-foreground">
-      <span>{label}</span>
-      <strong className="text-[13px] text-foreground">{children}</strong>
-    </div>
   )
 }

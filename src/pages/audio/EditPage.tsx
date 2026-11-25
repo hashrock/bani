@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { useReportUnsaved } from '../../app/leaveGuard'
 import { FileUpload } from '../../components/FileUpload'
-import { isEditableTarget } from '../../core/useHotkey'
-import { usePersistentState } from '../../core/usePersistentState'
+import { useHotkey } from '../../core/useHotkey'
+import { useRememberedChoice } from '../../core/usePersistentState'
 import { useRecipeHistory } from '../../core/useRecipeHistory'
 import { useSave } from '../../core/useSave'
 import { useI18n } from '../../i18n/context'
@@ -24,7 +25,14 @@ import { isAbortError } from '../../utils/abort'
 import type { EditPageProps } from '../types'
 import { AudioBottomBar } from './AudioBottomBar'
 import { AudioSidebar } from './AudioSidebar'
-import { effectiveRecipe, isSameAudioFormat, previewBaseGain, previewGainAt, usableOutput } from './logic'
+import {
+  defaultAudioOutput,
+  effectiveRecipe,
+  isSameAudioFormat,
+  previewBaseGain,
+  previewGainAt,
+  usableOutput,
+} from './logic'
 import { audioMessages } from './messages'
 import { useAudioPreview } from './useAudioPreview'
 import { Waveform } from './Waveform'
@@ -36,7 +44,7 @@ const WAVEFORM_BUCKETS = 4000
 const EMPTY_TRIM: AudioTrim = { start: 0, end: 0 }
 
 /** 音声 1 本を開き、切り出し・フェード・音量を決めて書き出す画面 */
-export default function EditPage({ opened, isDragging, onFiles }: EditPageProps) {
+export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange }: EditPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(audioMessages)
   const file = opened?.file ?? null
@@ -52,10 +60,15 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
 
   const history = useRecipeHistory<AudioRecipe | null>(null)
   const { recipe, replace } = history
-  // 出力設定は別のファイルを開いても、画面を行き来しても残す
-  const [storedOutput, setOutput] = usePersistentState<AudioOutput>('audio.output', () =>
-    createAudioOutput('mp3')
+  // 出力設定は、選ぶまでは元と同じ形式（書き出せるなら）。選んだら別のファイルを開いても、画面を行き来しても残す
+  const derivedOutput = useMemo(
+    () =>
+      file && info
+        ? defaultAudioOutput({ name: file.name, type: file.type, codec: info.codec }, supported)
+        : createAudioOutput('mp3'),
+    [file, info, supported]
   )
+  const [storedOutput, setOutput] = useRememberedChoice<AudioOutput>('audio.output', derivedOutput)
   const output = usableOutput(storedOutput, supported, AUDIO_FORMAT_LIST)
 
   // 画面はファイルごとに作り直されるので、読み込みの片付けは中断だけでよい
@@ -161,21 +174,8 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
     mono: !!recipe?.mono && (info?.channels ?? 1) > 1,
   })
 
-  // スペースで再生・一時停止。ボタンやつまみの上ではそれ自身の操作に任せる
-  const { toggle } = playback
-  useEffect(() => {
-    if (!recipe) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || event.repeat) return
-      const target = event.target
-      if (isEditableTarget(target)) return
-      if (target instanceof HTMLElement && target.closest('button, [role="slider"], [role="radio"]')) return
-      event.preventDefault()
-      toggle()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [recipe, toggle])
+  // Space で再生・一時停止（動画の画面と同じ）。ボタンやつまみの上ではそれ自身の操作に任せる
+  useHotkey('space', playback.toggle, { enabled: !!recipe })
 
   const save = useSave({
     opened,
@@ -199,8 +199,10 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
         setRenderProgress(null)
       }
     },
-    onSourceReplaced: (next) => onFiles([next]),
+    onSaved: history.markSaved,
+    onSourceReplaced: onReopen,
   })
+  useReportUnsaved(history.dirty, onDirtyChange)
 
   return (
     <div className="app">
@@ -233,8 +235,10 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
               onFiles={onFiles}
             />
           ) : (
-            // .preview-area は中身を中央に縮めて寄せるので、波形を横いっぱいに広げるためにここは自前で組む
-            <main className={cn('flex min-h-0 flex-1 flex-col', isDragging && 'drop-target-active')}>
+            // 波形は横いっぱいに広げるので、中央に寄せる .preview-area を縦並び・伸ばしに変えて使う
+            <main
+              className={cn('preview-area flex-col items-stretch justify-start', isDragging && 'drop-target-active')}
+            >
               {/* 試聴は元ファイルをそのまま鳴らし、編集は Web Audio でおおよそ掛ける */}
               <audio ref={audioRef} preload="auto" className="hidden" />
               {probeError ? (
