@@ -1,4 +1,3 @@
-import { encode } from '../../converters'
 import {
   AUDIO_FORMATS,
   NoAudioTrackError,
@@ -10,6 +9,7 @@ import {
 import { renderImage } from '../../media/image'
 import { DEFAULT_TEXT_RECIPE, UnrepresentableCharactersError, renderText } from '../../media/text'
 import type { RenderOptions } from '../../media/types'
+import { renderVideo } from '../../media/video'
 import type { ConvertKind } from './kinds'
 import type { ConvertMessages } from './messages'
 import type { ConvertSettings } from './outputs'
@@ -20,8 +20,6 @@ import { imageBatchRecipe } from './outputs'
  * 変換を始めたときに useBatchConversion から読み込む。
  */
 
-const VIDEO_MIME = { mp4: 'video/mp4', webm: 'video/webm', gif: 'image/gif' } as const
-
 /** 1 件を種類に合った設定で書き出す。保存先への書き込みは呼び出し側が行う */
 export async function renderEntry(
   file: File,
@@ -30,17 +28,9 @@ export async function renderEntry(
   options: RenderOptions
 ): Promise<Blob> {
   switch (kind) {
-    case 'video': {
-      const encoded = await encode({
-        file,
-        // 長さの異なるファイルが混ざるため、バッチでは常に全体を変換する
-        trim: null,
-        settings: settings.video,
-        signal: options.signal,
-        onProgress: options.onProgress,
-      })
-      return new Blob([encoded.buffer], { type: VIDEO_MIME[settings.video.format] })
-    }
+    case 'video':
+      // 長さの異なるファイルが混ざるため、バッチでは編集なし（レシピ null）で常に全体を変換する
+      return (await renderVideo(file, null, settings.video, options)).blob
     case 'audio': {
       const info = await probeAudio(file)
       return (await renderAudio(file, createAudioRecipe(info), settings.audio, options)).blob

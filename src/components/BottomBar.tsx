@@ -6,9 +6,9 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { useVideoPlayback } from '../hooks/useVideoPlayback'
 import { useI18n } from '../i18n/context'
-import { applyTrim, isWholeClip, trimDuration, trimFromSettings } from '../state/trim'
+import { isWholeClip, trimDuration } from '../state/trim'
 import type { TrimAction } from '../state/trim'
-import type { ConversionResult, ConversionSettings, Trim } from '../types'
+import type { ConversionResult, Trim } from '../types'
 import { formatBytes, formatTimecode } from '../utils/format'
 import { TimeField } from './TimeField'
 import { Timeline } from './Timeline'
@@ -19,8 +19,13 @@ interface BottomBarProps {
   file: File
   videoRef: RefObject<HTMLVideoElement | null>
   duration: number
-  settings: ConversionSettings
-  onSettingsChange: (settings: ConversionSettings) => void
+  /** 画面に映す区間（ドラッグ中なら下書き） */
+  trim: Trim
+  /** 区間の編集を 1 段として積む */
+  onTrimEdit: (action: TrimAction) => void
+  /** タイムラインのドラッグ中の編集。離したら onTrimCommit で 1 段にまとめる */
+  onTrimPreview: (action: TrimAction) => void
+  onTrimCommit: () => void
   result: ConversionResult | null
   showAfter: boolean
   onToggleView: (showAfter: boolean) => void
@@ -40,8 +45,10 @@ export function BottomBar({
   file,
   videoRef,
   duration,
-  settings,
-  onSettingsChange,
+  trim,
+  onTrimEdit,
+  onTrimPreview,
+  onTrimCommit,
   result,
   showAfter,
   onToggleView,
@@ -53,7 +60,6 @@ export function BottomBar({
   save,
 }: BottomBarProps) {
   const { t } = useI18n()
-  const trim = trimFromSettings(settings, duration)
   const { start, end } = trim
   const hasTimeline = duration > 0
 
@@ -64,12 +70,15 @@ export function BottomBar({
     if (showAfter) onToggleView(false)
   }
 
-  const setTrim = (next: Trim) => {
+  const dispatchTrim = (action: TrimAction) => {
     showSource()
-    onSettingsChange({ ...settings, startTime: next.start, endTime: next.end })
+    onTrimEdit(action)
   }
 
-  const dispatchTrim = (action: TrimAction) => setTrim(applyTrim(trim, duration, action))
+  const previewTrim = (action: TrimAction) => {
+    showSource()
+    onTrimPreview(action)
+  }
 
   const seek = (time: number) => {
     showSource()
@@ -114,7 +123,8 @@ export function BottomBar({
             duration={duration}
             trim={trim}
             currentTime={playback.currentTime}
-            onTrimChange={setTrim}
+            onTrimChange={previewTrim}
+            onTrimEnd={onTrimCommit}
             onSeek={seek}
           />
 

@@ -8,7 +8,13 @@ import { solidOnClass } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 import type { Messages } from '../i18n/messages'
 import { useI18n } from '../i18n/context'
-import type { ConversionSettings, OutputFormat } from '../types'
+import {
+  DEFAULT_GIF_FPS,
+  applyResolutionPreset,
+  isResolutionPresetActive,
+  resolutionPresetsFor,
+} from '../media/video'
+import type { VideoFormat, VideoOutput } from '../media/video'
 import { Step, StepHint } from './Step'
 
 /** 文言のうち、そのまま表示できる（引数を取らない）ものの名前 */
@@ -16,16 +22,11 @@ type TextKey = {
   [K in keyof Messages]: Messages[K] extends string ? K : never
 }[keyof Messages]
 
-const FORMATS: { value: OutputFormat; label: string; hint: TextKey }[] = [
+const FORMATS: { value: VideoFormat; label: string; hint: TextKey }[] = [
   { value: 'mp4', label: 'MP4', hint: 'formatHintMp4' },
   { value: 'webm', label: 'WebM', hint: 'formatHintWebm' },
   { value: 'gif', label: 'GIF', hint: 'formatHintGif' },
 ]
-
-/** 縦に並べる解像度プリセット（高さ基準） */
-const HEIGHT_PRESETS = [1080, 720, 480, 360]
-
-const evenNumber = (value: number) => Math.max(2, Math.round(value / 2) * 2)
 
 /** スライダーの見出し行（名前と現在値） */
 function FieldHead({ label, value }: { label: string; value: string | number }) {
@@ -40,9 +41,11 @@ function FieldHead({ label, value }: { label: string; value: string | number }) 
 interface OutputStepsProps {
   /** 最初の手順に振る番号 */
   startIndex: number
-  settings: ConversionSettings
-  onSettingsChange: (settings: ConversionSettings) => void
-  /** 元の解像度。わかるときだけ解像度のプリセットを出す */
+  settings: VideoOutput
+  onSettingsChange: (settings: VideoOutput) => void
+  /**
+   * 拡大縮小の前の解像度（単体編集なら切り抜き・回転のあと）。わかるときだけ解像度のプリセットを出す
+   */
   dimensions: { width: number; height: number } | null
 }
 
@@ -56,16 +59,6 @@ export function OutputSteps({
   const { t } = useI18n()
   const currentFormat = FORMATS.find((format) => format.value === settings.format)
 
-  const applyHeightPreset = (height: number) => {
-    if (!dimensions) return
-    const scaled = evenNumber((dimensions.width * height) / dimensions.height)
-    onSettingsChange({ ...settings, width: scaled, height: evenNumber(height) })
-  }
-
-  const isPresetActive = (height: number) =>
-    !!dimensions &&
-    settings.height === evenNumber(height) &&
-    settings.width === evenNumber((dimensions.width * height) / dimensions.height)
 
   return (
     <>
@@ -83,7 +76,7 @@ export function OutputSteps({
             onSettingsChange({
               ...settings,
               format: format.value,
-              fps: format.value === 'gif' ? (settings.fps ?? 10) : settings.fps,
+              fps: format.value === 'gif' ? (settings.fps ?? DEFAULT_GIF_FPS) : settings.fps,
             })
           }}
         >
@@ -104,11 +97,11 @@ export function OutputSteps({
       <Step index={startIndex + 1} title={settings.format === 'gif' ? t.stepFps : t.stepQuality}>
         {settings.format === 'gif' ? (
           <div className="flex flex-col gap-2">
-            <FieldHead label={t.fpsLabel} value={settings.fps ?? 10} />
+            <FieldHead label={t.fpsLabel} value={settings.fps ?? DEFAULT_GIF_FPS} />
             <Slider
               min={1}
               max={30}
-              value={[settings.fps ?? 10]}
+              value={[settings.fps ?? DEFAULT_GIF_FPS]}
               onValueChange={([fps]) => onSettingsChange({ ...settings, fps })}
               aria-label={t.fpsLabel}
             />
@@ -138,13 +131,14 @@ export function OutputSteps({
             >
               {t.originalSize}
             </PresetChip>
-            {HEIGHT_PRESETS.filter((height) => height < dimensions.height).map((height) => (
+            {/* 短い辺を合わせる。長い辺は縦横比から決まるので、切り抜きや回転を変えても崩れない */}
+            {resolutionPresetsFor(dimensions).map((preset) => (
               <PresetChip
-                key={height}
-                active={isPresetActive(height)}
-                onClick={() => applyHeightPreset(height)}
+                key={preset}
+                active={isResolutionPresetActive(settings, dimensions, preset)}
+                onClick={() => onSettingsChange(applyResolutionPreset(settings, dimensions, preset))}
               >
-                {height}p
+                {preset}p
               </PresetChip>
             ))}
           </div>

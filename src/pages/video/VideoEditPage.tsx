@@ -1,78 +1,63 @@
-import { useCallback, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { BottomBar } from '../../components/BottomBar'
 import { FileUpload } from '../../components/FileUpload'
 import { Sidebar } from '../../components/Sidebar'
 import { VideoPreview } from '../../components/VideoPreview'
 import { usePersistentState } from '../../core/usePersistentState'
 import { useSave } from '../../core/useSave'
-import type { ConversionResult } from '../../types'
-import type { EditPageProps } from '../types'
 import { useConversionJob } from '../../hooks/useConversionJob'
 import { useMediaInfo } from '../../hooks/useMediaInfo'
 import { useSizeEstimate } from '../../hooks/useSizeEstimate'
 import { useI18n } from '../../i18n/context'
-import type { ConversionSettings, MediaInfo } from '../../types'
-import { DEFAULT_SETTINGS } from '../../types'
+import { useLocalMessages } from '../../i18n/local'
+import { DEFAULT_VIDEO_OUTPUT, editedSize } from '../../media/video'
+import type { VideoOutput, VideoRecipe } from '../../media/video'
+import { createAbortError } from '../../utils/abort'
+import type { EditPageProps } from '../types'
+import { CropOverlay } from './CropOverlay'
+import { EditStep } from './EditStep'
+import { ExportStep } from './ExportStep'
+import { videoMessages } from './messages'
+import { useVideoRecipe } from './useVideoRecipe'
 
-/** 変換結果がいまの設定で作られたものかを比べるための鍵 */
-function settingsKey(settings: ConversionSettings): string {
-  return [
-    settings.format,
-    settings.quality,
-    settings.width ?? '',
-    settings.height ?? '',
-    settings.fps ?? '',
-    settings.startTime ?? '',
-    settings.endTime ?? '',
-  ].join('|')
-}
+/** 変換結果がいまのレシピと出力設定で作られたものかを比べるための鍵 */
+const resultKey = (recipe: VideoRecipe, output: VideoOutput) => JSON.stringify([recipe, output])
 
-const MIME_TYPES: Record<string, string> = {
-  gif: 'image/gif',
-  webm: 'video/webm',
-  mp4: 'video/mp4',
-}
-
-const toRendered = (result: ConversionResult) => {
-  const extension = result.filename.split('.').pop()?.toLowerCase() ?? ''
-  return {
-    blob: new Blob([result.buffer], { type: MIME_TYPES[extension] ?? 'application/octet-stream' }),
-    filename: result.filename,
-  }
-}
-
-/** 動画 1 本を開き、切り出しや解像度を決めて書き出す画面 */
+/**
+ * 動画 1 本を開き、編集（レシピ）と出力設定を決めて書き出す画面。
+ * レシピは取り消し・やり直しの履歴で持ち、出力設定は別のファイルを開いても残す。
+ */
 export function VideoEditPage({ opened, isDragging, onFiles }: EditPageProps) {
   const { t } = useI18n()
+  const m = useLocalMessages(videoMessages)
   const file = opened?.file ?? null
-  // 出力設定は別のファイルを開いても、画面を行き来しても残す
-  const [settings, setSettings] = usePersistentState<ConversionSettings>(
-    'video.settings',
-    DEFAULT_SETTINGS
-  )
+  const [output, setOutput] = usePersistentState<VideoOutput>('video.output', DEFAULT_VIDEO_OUTPUT)
+  const edits = useVideoRecipe()
+  // 尺と寸法がわかったら、レシピを新しいファイルの全体に合わせて作り直す
+  const media = useMediaInfo(file, edits.resetFor)
+  const { recipe, committed } = edits
+
+  const [cropping, setCropping] = useState(false)
   const [showAfter, setShowAfter] = useState(false)
   const [convertedKey, setConvertedKey] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
 
-  // 尺がわかったら、切り出し区間を新しいファイルの全体に合わせる
-  const handleMediaLoaded = useCallback(
-    (info: MediaInfo) => setSettings((prev) => ({ ...prev, startTime: 0, endTime: info.duration })),
-    [setSettings]
-  )
-  const media = useMediaInfo(file, handleMediaLoaded)
+  const job = useConversionJob({ file, recipe: committed, output, media })
+  const previewEstimate = useSizeEstimate({ file, recipe: committed, output, media })
 
-  const job = useConversionJob({ file, settings, media })
-  const previewEstimate = useSizeEstimate({ file, settings, media })
+  // 変換したあとにレシピや設定を触ったか。再変換ボタンで示す
+  const stale = !!job.result && convertedKey !== resultKey(committed, output)
 
-  // 変換したあとに設定を触ったか。再変換ボタンで示す
-  const stale = !!job.result && convertedKey !== settingsKey(settings)
-
-  const handleConvert = async () => {
+  const convert = async () => {
+    const key = resultKey(committed, output)
+    const result = await job.convert()
     // 変換できたら結果側に切り替える（その後の手動切り替えは妨げない）
-    if (await job.convert()) {
-      setConvertedKey(settingsKey(settings))
+    if (result) {
+      setConvertedKey(key)
       setShowAfter(true)
+      setCropping(false)
     }
+    return result
   }
 
   // 保存は変換結果を使う。まだ変換していなければ先に変換する。
@@ -84,41 +69,55 @@ export function VideoEditPage({ opened, isDragging, onFiles }: EditPageProps) {
     canCopy: false,
     disabled: !file || job.running,
     render: async () => {
-      const result = job.result ?? (await handleConvertResult())
-      if (!result) throw new DOMException('Conversion did not finish', 'AbortError')
-      return toRendered(result)
+      const result = (!stale && job.result) || (await convert())
+      if (!result) throw createAbortError('Conversion did not finish')
+      return { blob: result.blob, filename: result.filename }
     },
     onSourceReplaced: (next) => onFiles([next]),
   })
 
-  async function handleConvertResult() {
-    const result = await job.convert()
-    if (result) {
-      setConvertedKey(settingsKey(settings))
-      setShowAfter(true)
-    }
-    return result
-  }
+  const size = media ? editedSize(media, recipe) : null
 
-  // 尺に依存する切り出し区間は、いま開いているファイルに合わせて残す
-  const handleResetSettings = () =>
-    setSettings({ ...DEFAULT_SETTINGS, startTime: 0, endTime: media?.duration })
+  // 編集はいま映している元の映像に対して行うので、結果を見ていたら入力側に戻す
+  const showSource = () => {
+    if (showAfter) setShowAfter(false)
+  }
 
   return (
     <div className="app">
       <Sidebar
         file={file}
         media={media}
-        settings={settings}
-        onSettingsChange={setSettings}
+        output={output}
+        onOutputChange={setOutput}
+        trim={recipe.trim}
+        editedSize={size}
+        renderEditStep={(index) => (
+          <EditStep
+            index={index}
+            info={media}
+            state={edits}
+            cropping={cropping}
+            onCroppingChange={(next) => {
+              showSource()
+              setCropping(next)
+            }}
+          />
+        )}
+        renderExportStep={(index) =>
+          file && (
+            <ExportStep index={index} file={file} info={media} recipe={committed} videoRef={videoRef} />
+          )
+        }
         onFileSelect={(selected) => onFiles([selected])}
-        onResetSettings={handleResetSettings}
+        // 出力設定だけを戻す。編集は「編集をすべて取り消す」で戻す（こちらは取り消せる）
+        onResetSettings={() => setOutput(DEFAULT_VIDEO_OUTPUT)}
         previewEstimate={previewEstimate}
         converting={job.running}
         progress={job.progress}
         hasResult={!!job.result}
         stale={stale}
-        onConvert={handleConvert}
+        onConvert={() => void convert()}
         onCancel={job.cancel}
         save={save}
       />
@@ -129,6 +128,21 @@ export function VideoEditPage({ opened, isDragging, onFiles }: EditPageProps) {
             <VideoPreview
               file={file}
               videoRef={videoRef}
+              recipe={recipe}
+              dimensions={media?.dimensions ?? null}
+              renderOverlay={(scale) =>
+                media?.dimensions && (
+                  <CropOverlay
+                    recipe={recipe}
+                    size={media.dimensions}
+                    scale={scale}
+                    editing={cropping && !showAfter}
+                    onChange={(rect) => edits.preview({ type: 'crop', rect })}
+                    onCommit={edits.commit}
+                    label={m.cropArea}
+                  />
+                )
+              }
               result={job.result}
               converting={job.running}
               progress={job.progress}
@@ -152,15 +166,17 @@ export function VideoEditPage({ opened, isDragging, onFiles }: EditPageProps) {
             file={file}
             videoRef={videoRef}
             duration={media?.duration ?? 0}
-            settings={settings}
-            onSettingsChange={setSettings}
+            trim={recipe.trim}
+            onTrimEdit={(action) => edits.edit({ type: 'trim', action })}
+            onTrimPreview={(action) => edits.preview({ type: 'trim', action })}
+            onTrimCommit={edits.commit}
             result={job.result}
             showAfter={showAfter}
             onToggleView={setShowAfter}
             converting={job.running}
             progress={job.progress}
             stale={stale}
-            onConvert={handleConvert}
+            onConvert={() => void convert()}
             onCancel={job.cancel}
             save={save}
           />
