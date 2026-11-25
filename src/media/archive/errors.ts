@@ -3,7 +3,7 @@
  * （message は開発者向けの手がかり）。
  */
 export type ArchiveErrorCode =
-  /** 形式が分からない、または 7z・RAR など扱わない形式 */
+  /** 形式が分からない、または bzip2・xz など扱わない形式 */
   | 'unsupported-format'
   /** パスワード付き。解読はしないので、はっきり断る */
   | 'encrypted'
@@ -15,6 +15,10 @@ export type ArchiveErrorCode =
   | 'not-found'
   /** 作成時: ZIP64 を書かないので 4GB 以上・65535 個を超えるものは ZIP にできない（tar.gz を使う） */
   | 'too-large'
+  /** 7z・RAR: WASM のメモリに載せて読むので、1GB を超えるものは開けない */
+  | 'too-large-to-open'
+  /** 7z・RAR を読む部品（WASM）を読み込めなかった。オフラインでまだ一度も取得していないときなど */
+  | 'engine-unavailable'
 
 export class ArchiveError extends Error {
   readonly code: ArchiveErrorCode

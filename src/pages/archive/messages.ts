@@ -68,9 +68,12 @@ const ja = {
     corrupt: '圧縮ファイルが壊れているか、途中で切れています。',
     'not-found': '指定したファイルが圧縮ファイルの中にありません。',
     'too-large': '4GB 以上のファイル、または 65535 個を超えるファイルは ZIP にできません。tar.gz を選んでください。',
+    'too-large-to-open': '7z・RAR は 1GB までのファイルを開けます。',
+    'engine-unavailable':
+      '7z・RAR を読む部品を読み込めませんでした。オフラインのときは、一度オンラインでこの形式を開くと、次からはオフラインでも開けます。',
   } satisfies Record<ArchiveErrorCode, string>,
   unsupportedNamed: (format: string) =>
-    `${format} 形式にはまだ対応していません。ZIP・tar・tar.gz・gzip を開けます。`,
+    `${format} 形式にはまだ対応していません。ZIP・tar・tar.gz・gzip・7z・RAR を開けます。`,
   failed: (message: string) => `失敗しました: ${message}`,
 }
 
@@ -138,8 +141,11 @@ const en: ArchiveMessages = {
     corrupt: 'The archive is damaged or truncated.',
     'not-found': 'The file is not in the archive.',
     'too-large': "Files of 4GB or more, or more than 65535 files, can't go into a ZIP. Choose tar.gz.",
+    'too-large-to-open': '7z and RAR files can be opened up to 1GB.',
+    'engine-unavailable':
+      "Couldn't load the 7z/RAR reader. If you're offline, open a file of this format once while online; after that it works offline too.",
   },
-  unsupportedNamed: (format) => `${format} is not supported yet. ZIP, tar, tar.gz and gzip can be opened.`,
+  unsupportedNamed: (format) => `${format} is not supported yet. ZIP, tar, tar.gz, gzip, 7z and RAR can be opened.`,
   failed: (message) => `Failed: ${message}`,
 }
 

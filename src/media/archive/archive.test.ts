@@ -354,10 +354,10 @@ describe('tar と gzip', () => {
 
 describe('形式の判定', () => {
   test.each([
-    ['7z', [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c, 0, 4]],
-    ['rar', [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0]],
+    // 7z・RAR は libarchive（WASM）で読む。wasmArchive.test.ts を参照
     ['xz', [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]],
     ['bzip2', [0x42, 0x5a, 0x68, 0x39]],
+    ['zstd', [0x28, 0xb5, 0x2f, 0xfd]],
   ])('%s は判定したうえで unsupported-format として断る', async (format, head) => {
     const bytes = new Uint8Array(1024)
     bytes.set(head)

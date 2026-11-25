@@ -1,10 +1,12 @@
 import type { NameEncoding } from './names'
 
-/** 中身を一覧・展開できる形式 */
-export type ArchiveFormat = 'zip' | 'tar' | 'tar.gz' | 'gzip'
+/**
+ * 中身を一覧・展開できる形式。7z・RAR は読み取りだけで、WASM（libarchive）を開いたときに読み込む
+ */
+export type ArchiveFormat = 'zip' | 'tar' | 'tar.gz' | 'gzip' | '7z' | 'rar'
 
 /** 先頭のバイト列から分かる形式。扱わない形式も名前を返し、画面ではっきり断れるようにする */
-export type DetectedFormat = ArchiveFormat | '7z' | 'rar' | 'bzip2' | 'xz' | 'zstd' | 'unknown'
+export type DetectedFormat = ArchiveFormat | 'bzip2' | 'xz' | 'zstd' | 'unknown'
 
 /** 中のファイル 1 つ（またはフォルダ 1 つ） */
 export interface ArchiveEntry {
@@ -16,7 +18,7 @@ export interface ArchiveEntry {
   /** 展開後の大きさ（バイト） */
   size: number
   /**
-   * 圧縮後の大きさ（バイト）。tar.gz は全体をまとめて縮めるので 1 つずつの値はなく null。
+   * 圧縮後の大きさ（バイト）。tar.gz・7z・RAR は 1 つずつの値が取れない（まとめて縮めることがある）ので null。
    * 全体の圧縮率は ArchiveInfo の archiveSize と totalSize から出す
    */
   compressedSize: number | null

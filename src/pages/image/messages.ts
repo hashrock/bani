@@ -6,6 +6,8 @@ export const imageMessages = defineMessages({
     dropHere: '画像ファイルをここにドロップ',
     dropHint: 'PNG・JPEG・WebP・GIF・AVIF など。SVG はテキストとして開きます。',
     loadFailed: 'この画像は読み込めませんでした',
+    heifUnavailable:
+      'HEIC を読む部品を読み込めませんでした。オフラインのときは、一度オンラインで HEIC を開くと、次からはオフラインでも開けます',
     factFormat: '形式',
     gpsNotice: '位置情報を含みます。保存すると取り除かれます',
     metadataNotice: '撮影情報などの付帯情報を含みます。保存すると取り除かれます',
@@ -65,6 +67,8 @@ export const imageMessages = defineMessages({
     dropHere: 'Drop an image file here',
     dropHint: 'PNG, JPEG, WebP, GIF, AVIF and more. SVG opens as text.',
     loadFailed: 'This image could not be loaded',
+    heifUnavailable:
+      "Couldn't load the HEIC reader. If you're offline, open a HEIC once while online; after that it works offline too",
     factFormat: 'Format',
     gpsNotice: 'Contains location data. It is removed when you save',
     metadataNotice: 'Contains metadata such as camera details. It is removed when you save',

@@ -7,6 +7,7 @@ import { basename, createPathRegistry, decodeEntryName, sanitizePath, type NameE
 import { blobReader, gunzipReader, readBytes } from './streams'
 import { readTar } from './tar'
 import type { ArchiveEntry, ArchiveFormat, ArchiveInfo } from './types'
+import type { WasmArchive } from './wasmArchive'
 import { extractZipRecord, isSupportedZipMethod, readZipRecords, type ZipRecord } from './zip'
 
 /** 形式ごとの読み取りの結果に共通する、名前を付ける前の中身 */
@@ -53,6 +54,7 @@ type Located =
   | { format: 'tar'; items: { entry: ArchiveEntry; dataOffset: number }[] }
   | { format: 'tar.gz' }
   | { format: 'gzip'; entry: ArchiveEntry }
+  | { format: '7z' | 'rar'; items: { entry: ArchiveEntry; index: number }[]; archive: WasmArchive }
 
 const fileName = (file: Blob) => (file instanceof File ? file.name : '')
 
@@ -61,6 +63,8 @@ async function sniff(file: Blob, signal?: AbortSignal): Promise<ArchiveFormat> {
   switch (detected) {
     case 'zip':
     case 'tar':
+    case '7z':
+    case 'rar':
       return detected
     case 'gzip': {
       // gzip の中身が tar かどうかは展開した先頭のブロックを見て決める
@@ -128,6 +132,26 @@ async function locate(file: Blob, format: ArchiveFormat, signal?: AbortSignal): 
     return { format, items }
   }
   if (format === 'gzip') return { format, entry: await gzipEntry(file) }
+  if (format === '7z' || format === 'rar') {
+    // libarchive（WASM 約 1MB）はここで初めて読み込む。ZIP・tar だけを使う人には読み込ませない
+    const { openWasmArchive } = await import('./wasmArchive').catch((error: unknown) => {
+      throw new ArchiveError('engine-unavailable', `7z・RAR を読む部品を読み込めませんでした: ${String(error)}`)
+    })
+    const archive = await openWasmArchive(file, signal)
+    try {
+      const namer = createEntryNamer()
+      const items: { entry: ArchiveEntry; index: number }[] = []
+      for (const record of await archive.list()) {
+        // 7z・RAR はまとめて縮める（ソリッド）ことがあり、1 つずつの圧縮後の大きさは取れない
+        const entry = namer({ ...record, compressedSize: null })
+        if (entry) items.push({ entry, index: record.index })
+      }
+      return { format, items, archive }
+    } catch (error) {
+      archive.close()
+      throw error
+    }
+  }
   return { format }
 }
 
@@ -168,7 +192,8 @@ function summarize(format: ArchiveFormat, file: Blob, entries: ArchiveEntry[]): 
 /**
  * 圧縮ファイルの形式と中身の一覧を読む。ZIP と tar は中身を展開せずに読めるが、
  * tar.gz は全体を展開しないと一覧が分からないので、時間がかかる（options で中断・進み具合）。
- * 7z・RAR などは ArchiveError('unsupported-format') で、format に形式名を入れて断る。
+ * 7z・RAR は libarchive（WASM）を読み込んで読む。読み込めなければ ArchiveError('engine-unavailable')。
+ * bzip2・xz などは ArchiveError('unsupported-format') で、format に形式名を入れて断る。
  */
 export async function probeArchive(file: Blob, options: RenderOptions = {}): Promise<ArchiveInfo> {
   const format = await sniff(file, options.signal)
@@ -179,6 +204,11 @@ export async function probeArchive(file: Blob, options: RenderOptions = {}): Pro
       return summarize(format, file, located.items.map((item) => item.entry))
     case 'gzip':
       return summarize(format, file, [located.entry])
+    case '7z':
+    case 'rar':
+      located.archive.close()
+      options.onProgress?.(1)
+      return summarize(format, file, located.items.map((item) => item.entry))
     case 'tar.gz': {
       const entries: ArchiveEntry[] = []
       await walkTarGz(file, options, (entry) => void entries.push(entry))
@@ -266,6 +296,10 @@ async function extract(file: Blob, paths: readonly string[] | 'all', options: Re
     return [{ entry, blob: new Blob(parts as BlobPart[], { type: guessMimeType(entry.path) }) }]
   }
 
+  if (located.format === '7z' || located.format === 'rar') {
+    return extractWasm(located.items, located.archive, selection, options)
+  }
+
   // ZIP と素の tar は位置が分かっているので、選んだものだけを読む
   const chosen = (located.items as { entry: ArchiveEntry; record?: ZipRecord; dataOffset?: number }[]).filter(
     (item) => selection.includes(item.entry)
@@ -294,6 +328,44 @@ async function extract(file: Blob, paths: readonly string[] | 'all', options: Re
   }
   onProgress?.(1)
   return results
+}
+
+/** 7z・RAR の展開。中断は Worker を止めて行い、進み具合は展開後の大きさで数える */
+async function extractWasm(
+  items: { entry: ArchiveEntry; index: number }[],
+  archive: WasmArchive,
+  selection: ReturnType<typeof createSelection>,
+  { signal, onProgress }: RenderOptions
+): Promise<Extracted[]> {
+  try {
+    const chosen = items.filter((item) => selection.includes(item.entry))
+    selection.assertAllFound()
+    for (const item of chosen) assertExtractable(item.entry)
+    const byIndex = new Map(chosen.map((item) => [item.index, item.entry]))
+    const blobs = new Map<number, Blob>()
+    const total = chosen.reduce((sum, item) => sum + item.entry.size, 0)
+    let done = 0
+    throwIfAborted(signal)
+    await archive.extract(
+      chosen.map((item) => item.index),
+      (index, data) => {
+        const entry = byIndex.get(index)
+        if (!entry) return
+        blobs.set(index, new Blob([data as BlobPart], { type: guessMimeType(entry.path) }))
+        done += data.length
+        onProgress?.(total === 0 ? 1 : Math.min(1, done / total))
+      }
+    )
+    throwIfAborted(signal)
+    onProgress?.(1)
+    return chosen.map((item) => {
+      const blob = blobs.get(item.index)
+      if (!blob) throw new ArchiveError('corrupt', `展開できませんでした: ${item.entry.path}`, { path: item.entry.path })
+      return { entry: item.entry, blob }
+    })
+  } finally {
+    archive.close()
+  }
 }
 
 /**

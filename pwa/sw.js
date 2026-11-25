@@ -2,7 +2,9 @@
  * Bani の Service Worker。ビルド時に pwa/plugin.ts が
  * 事前キャッシュするファイルの一覧と、その内容から作った版を下の 2 つの定数に埋め込む。
  *
- * - インストール時にアプリのファイルをすべて取り込み、以後はネットワークなしで動く
+ * - インストール時にアプリのファイルを取り込み、以後はネットワークなしで動く
+ * - HEIC・7z・RAR を読む WASM（LAZY）だけは事前に取らず、初めて使ったときにキャッシュへ入れる。
+ *   一度使えば以後はオフラインでも動く。新しい版になっても同じファイル（同じハッシュ）なら引き継ぐ
  * - 同じオリジンへの GET はキャッシュを優先する（ファイル名にハッシュが付くので古くならない）
  * - 画面遷移は常に index.html を返す（hash ルーティングなので 1 枚で足りる）
  * - 別オリジン（サービス切り替えのスクリプトなど）には関わらない。オフラインでは読めずに消えるだけ
@@ -11,16 +13,30 @@
  * 開いている画面が古い版のファイルを読みに行って失敗することを避けるため。
  */
 const PRECACHE = self.__BANI_PRECACHE__
+const LAZY = self.__BANI_LAZY__
 const VERSION = self.__BANI_VERSION__
 const CACHE_PREFIX = 'bani-'
 const CACHE_NAME = `${CACHE_PREFIX}${VERSION}`
 const INDEX_URL = new URL('index.html', self.registration.scope).href
+const toUrl = (path) => new URL(path, self.registration.scope).href
+const LAZY_URLS = new Set(LAZY.map(toUrl))
+
+/** 古い版のキャッシュに同じファイルがあれば、消す前に新しい版へ写す（取り直さずに済む） */
+async function carryOverLazy(cache) {
+  await Promise.all(
+    [...LAZY_URLS].map(async (url) => {
+      if (await cache.match(url)) return
+      const previous = await caches.match(url)
+      if (previous) await cache.put(url, previous)
+    })
+  )
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
       // 途中で失敗したら版ごと入れない（半端なキャッシュでオフライン起動させない）
-      cache.addAll(PRECACHE.map((path) => new URL(path, self.registration.scope).href))
+      cache.addAll(PRECACHE.map(toUrl))
     )
   )
 })
@@ -28,7 +44,9 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
-      .keys()
+      .open(CACHE_NAME)
+      .then(carryOverLazy)
+      .then(() => caches.keys())
       .then((keys) =>
         Promise.all(
           keys
@@ -49,6 +67,24 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(
       caches.match(INDEX_URL).then((cached) => cached ?? fetch(request))
+    )
+    return
+  }
+
+  if (LAZY_URLS.has(url.href)) {
+    event.respondWith(
+      caches.match(request).then(
+        (cached) =>
+          cached ??
+          fetch(request).then((response) => {
+            // 取れたものだけを入れる。オフラインで取れなければそのまま失敗させ、画面が案内を出す
+            if (response.ok) {
+              const copy = response.clone()
+              event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)))
+            }
+            return response
+          })
+      )
     )
     return
   }
