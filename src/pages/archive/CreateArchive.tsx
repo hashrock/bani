@@ -28,6 +28,8 @@ import { useHotkey } from '../../core/useHotkey'
 import { usePersistentState } from '../../core/usePersistentState'
 import { useRecipeHistory } from '../../core/useRecipeHistory'
 import { useSave } from '../../core/useSave'
+import type { ResumedSession } from '../../core/session'
+import { useSessionRecipe } from '../../core/useSessionRecipe'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import {
@@ -71,10 +73,18 @@ interface CreateArchiveProps {
   seed: { name: string; files: AddedFile[] } | null
   onFiles: (files: OpenedFile[]) => void
   onDirtyChange: (dirty: boolean) => void
+  /** 入口の「前回の作業を再開」から来たとき */
+  resumed?: ResumedSession | null
+}
+
+/** 残す作業の形の見本。中身の一覧は空なので、要素の形は 1 つ置いて比べる */
+const SESSION_TEMPLATE: ArchiveRecipe = {
+  ...createArchiveRecipe(),
+  items: [{ id: '', path: '', size: 0, lastModified: 0 }],
 }
 
 /** 新しい圧縮ファイルを組み立てる。中身の指定はレシピ（ArchiveRecipe）で持ち、⌘Z で戻せる */
-export function CreateArchive({ seed, onFiles, onDirtyChange }: CreateArchiveProps) {
+export function CreateArchive({ seed, onFiles, onDirtyChange, resumed }: CreateArchiveProps) {
   const { t } = useI18n()
   const m = useLocalMessages(messages)
   // 元ファイルはレシピに入れず id で引く。取り消しで戻ってきたときのために消さずに持っておく
@@ -187,6 +197,33 @@ export function CreateArchive({ seed, onFiles, onDirtyChange }: CreateArchivePro
     onSaved: history.markSaved,
   })
   useReportUnsaved(history.dirty, onDirtyChange)
+  // 作業を残し、入口から再開できるようにする。入れるファイルはレシピの並びのまま残す
+  useSessionRecipe('archive', recipe, {
+    opened: null,
+    resumed,
+    enabled: true,
+    dirty: history.dirty,
+    version: 1,
+    ready: true,
+    template: SESSION_TEMPLATE,
+    // 元ファイルは sources（ref）から引くので、書くときに集める
+    extras: () =>
+      recipe.items.flatMap((item) => {
+        const file = sources.current.get(item.id)
+        return file ? [{ file, handle: null }] : []
+      }),
+    label: `${recipe.name}.${format === 'zip' ? 'zip' : 'tar.gz'}`,
+    onResume: (saved, session) => {
+      if (saved.items.length !== session.extras.length) return
+      // id はこの読み込みの中で振り直す（前回の id とぶつけない）
+      const items = saved.items.map((item, index) => {
+        const id = nextId()
+        sources.current.set(id, session.extras[index].file)
+        return { ...item, id }
+      })
+      history.restore({ ...saved, items })
+    },
+  })
 
   // 一覧にフォーカスがなくても、選んだものを Delete で消し、⌘A ですべて選ぶ
   useHotkey('delete', removeSelected, { enabled: selected.size > 0 })

@@ -5,6 +5,7 @@ import { FileUpload } from '../../components/FileUpload'
 import { useHotkey } from '../../core/useHotkey'
 import { useRememberedChoice } from '../../core/usePersistentState'
 import { useRecipeHistory } from '../../core/useRecipeHistory'
+import { useSessionRecipe } from '../../core/useSessionRecipe'
 import { useSave } from '../../core/useSave'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
@@ -56,7 +57,7 @@ const EMPTY_TRIM: AudioTrim = { start: 0, end: 0 }
 const NO_RANGES: readonly TimeRange[] = []
 
 /** 音声 1 本を開き、切り出し・フェード・音量を決めて書き出す画面 */
-export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange }: EditPageProps) {
+export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange, resumed }: EditPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(audioMessages)
   const file = opened?.file ?? null
@@ -225,6 +226,20 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
     onSourceReplaced: onReopen,
   })
   useReportUnsaved(history.dirty, onDirtyChange)
+  // 作業を残し、入口から再開できるようにする（読み込んでレシピができてから、区間が尺の内側なら当てる）
+  useSessionRecipe('audio', recipe, {
+    opened,
+    resumed,
+    enabled: !!file,
+    dirty: history.dirty,
+    version: 1,
+    ready: recipe !== null,
+    check: (saved, fresh) =>
+      !!saved && !!fresh && saved.trim.start >= 0 && saved.trim.end <= fresh.trim.end + 1e-3,
+    onResume: (saved) => {
+      if (saved) history.restore(saved)
+    },
+  })
 
   return (
     <div className="app">

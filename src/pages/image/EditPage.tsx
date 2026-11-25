@@ -5,8 +5,10 @@ import { FileUpload } from '../../components/FileUpload'
 import type { SaveMethod } from '../../core/save'
 import { isEditableTarget, useHotkey } from '../../core/useHotkey'
 import { useRememberedChoice } from '../../core/usePersistentState'
+import { isRectOrNull } from '../../core/session'
 import { useRecipeHistory } from '../../core/useRecipeHistory'
 import { useSave } from '../../core/useSave'
+import { useSessionRecipe } from '../../core/useSessionRecipe'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import {
@@ -37,7 +39,7 @@ const BASELINE_FORMATS: ImageFormat[] = ['png', 'jpeg', 'webp']
 const IDENTITY = createImageRecipe()
 
 /** 画像 1 枚を開き、回転・切り抜き・リサイズ・余白を決めて書き出す画面 */
-export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange }: EditPageProps) {
+export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange, resumed }: EditPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(imageMessages)
   const file = opened?.file ?? null
@@ -111,6 +113,22 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
     onSourceReplaced: onReopen,
   })
   useReportUnsaved(history.dirty, onDirtyChange)
+  // 作業を残し、入口から再開できるようにする（画像を読めてから、切り抜きが画像の内側なら当てる）
+  useSessionRecipe('image', recipe, {
+    opened,
+    resumed,
+    enabled: !!file,
+    dirty: history.dirty,
+    version: 1,
+    ready: !!info,
+    check: (saved) =>
+      isRectOrNull(saved.crop) &&
+      (!saved.crop ||
+        (!!info && saved.crop.x + saved.crop.width <= info.width && saved.crop.y + saved.crop.height <= info.height)) &&
+      (saved.resize === null || typeof saved.resize === 'object') &&
+      (saved.background === null || typeof saved.background === 'string'),
+    onResume: history.restore,
+  })
 
   // ⌘C: 文字を選んでいなければ、編集結果の画像をコピーする（ドロップダウンのコピーと同じ）
   const { run } = save

@@ -5,11 +5,14 @@ import { Toaster } from '@/components/ui/sonner'
 import { detectKindAsync, planIntake } from './app/intake'
 import { confirmDiscard, hasUnsaved, setLeaveMessage, setUnsaved } from './app/leaveGuard'
 import { shellMessages } from './app/messages'
+import { sessionMessages } from './app/sessionMessages'
 import { currentRoute, navigate, subscribeRoute, useRoute } from './app/router'
 import type { MediaKind } from './app/routes'
 import { useFileDrop } from './app/useFileDrop'
 import { usePasteFiles } from './app/usePasteFiles'
 import type { OpenedFile } from './core/opened'
+import type { ResumedSession } from './core/session'
+import { listSessions, restoreSession } from './core/sessionStore'
 import { useHotkey } from './core/useHotkey'
 import { useI18n } from './i18n/context'
 import { useLocalMessages } from './i18n/local'
@@ -33,7 +36,8 @@ const CONVERT_ONLY = { edit: [], convert: CAPABILITIES.convert }
  * 一括変換は作り直さず、届いた分（id で見分ける）を一覧の末尾に足す。
  */
 interface Opened {
-  edit: { file: OpenedFile; kind: MediaKind } | null
+  /** file は新規の文書・圧縮ファイルの作成を再開したときだけ null。resumed は再開したときのセッション */
+  edit: { file: OpenedFile | null; kind: MediaKind; resumed?: ResumedSession } | null
   editId: number
   convert: { id: number; files: OpenedFile[] } | null
 }
@@ -41,6 +45,7 @@ interface Opened {
 function App() {
   const { t } = useI18n()
   const shell = useLocalMessages(shellMessages)
+  const sm = useLocalMessages(sessionMessages)
   const route = useRoute()
 
   // ブラウザの戻る・進むで離れるときの確認（router）は React の外で出すので、文言を先に渡しておく
@@ -94,6 +99,49 @@ function App() {
     [t]
   )
 
+  /** 前回の作業を再開する。ファイルを読み直し、その画面をレシピごと開き直す（履歴は新しく始まる） */
+  const resume = useCallback(
+    async (id: string) => {
+      if (!confirmDiscard(t.discardConfirm)) return
+      const resumed = await restoreSession(id)
+      if (!resumed) {
+        toast.error(sm.resumeFailed, { id: INTAKE_TOAST_ID })
+        return
+      }
+      toast.dismiss(INTAKE_TOAST_ID)
+      setOpened((prev) => ({
+        ...prev,
+        edit: { file: resumed.opened, kind: resumed.kind, resumed },
+        editId: prev.editId + 1,
+      }))
+      navigate({ name: 'edit', kind: resumed.kind })
+    },
+    [t, sm]
+  )
+  const onResume = useCallback((id: string) => void resume(id), [resume])
+
+  // 編集画面を直に開いて（再読み込みして）来たとき、その画面の作業が残っていれば再開を勧める
+  useEffect(() => {
+    const first = currentRoute()
+    if (first.name !== 'edit') return
+    let cancelled = false
+    void listSessions().then((sessions) => {
+      const found = sessions.find((session) => session.kind === first.kind)
+      const now = currentRoute()
+      if (cancelled || !found || now.name !== 'edit' || now.kind !== first.kind) return
+      toast(sm.found(found.name), {
+        id: INTAKE_TOAST_ID,
+        duration: 15000,
+        action: { label: sm.resume, onClick: () => onResume(found.id) },
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+    // 読み込んだときに一度だけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const openFiles = useCallback((files: OpenedFile[]) => void intake(files), [intake])
   const reopen = useCallback((file: OpenedFile) => void intake([file], { reopen: true }), [intake])
 
@@ -119,15 +167,21 @@ function App() {
     switch (route.name) {
       case 'hub':
         return (
-          <HubPage capabilities={CAPABILITIES} isDragging={drop.isDragging} onFiles={openFiles} />
+          <HubPage
+            capabilities={CAPABILITIES}
+            isDragging={drop.isDragging}
+            onFiles={openFiles}
+            onResume={onResume}
+          />
         )
       case 'edit': {
         const EditPage = EDIT_PAGES[route.kind]
-        const file = opened.edit?.kind === route.kind ? opened.edit.file : null
+        const current = opened.edit?.kind === route.kind ? opened.edit : null
         return (
           <EditPage
             key={`${route.kind}-${opened.editId}`}
-            opened={file}
+            opened={current?.file ?? null}
+            resumed={current?.resumed ?? null}
             isDragging={drop.isDragging}
             onFiles={openFiles}
             onReopen={reopen}
