@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import fc from 'fast-check'
 import { MIN_RANGE } from '../../state/trim'
 import {
+  MAX_SUBTITLE_OFFSET,
   MIN_CROP_SIZE,
   applyVideoEdit,
   clampCrop,
@@ -9,8 +10,10 @@ import {
   editedSize,
   encodeTrim,
   isIdentityRecipe,
+  restoreVideoRecipe,
   rotatedCrop,
 } from './recipe'
+import { MAX_VIDEO_SPEED, MIN_VIDEO_SPEED } from './timing'
 import type { VideoEdit, VideoInfo, VideoRecipe } from './types'
 
 const infoWith = (duration: number, width: number | null, height = width): VideoInfo => ({
@@ -39,6 +42,17 @@ const videoEdit: fc.Arbitrary<VideoEdit> = fc.oneof(
   fc.constant({ type: 'flipH' } as const),
   fc.constant({ type: 'flipV' } as const),
   fc.boolean().map((muted) => ({ type: 'mute', muted }) as const),
+  wildNumber.map((speed) => ({ type: 'speed', speed }) as const),
+  fc.boolean().map((preserve) => ({ type: 'preservePitch', preserve }) as const),
+  fc
+    .array(
+      fc.tuple(wildNumber, wildNumber, fc.string({ maxLength: 6 })).map(([start, end, text]) => ({ start, end, text })),
+      { maxLength: 6 }
+    )
+    .map((cues) => ({ type: 'subtitles', subtitles: { name: 'a.srt', cues } }) as const),
+  fc.constant({ type: 'subtitles', subtitles: null } as const),
+  fc.oneof(wildNumber, fc.double({ min: -1e8, max: 1e8, noNaN: true })).map((offset) => ({ type: 'subtitleOffset', offset }) as const),
+  fc.constantFrom('embed', 'burn').map((mode) => ({ type: 'subtitleMode', mode }) as const),
   fc.constant({ type: 'reset' } as const)
 )
 
@@ -260,5 +274,90 @@ describe('encodeTrim', () => {
         }
       })
     )
+  })
+})
+
+describe('速さと字幕', () => {
+  test('どんな編集列をたどっても、速さは範囲の中、字幕は整数の時刻で長さが正、ずらしは上限の中', () => {
+    fc.assert(
+      fc.property(videoInfo, edits, (info, list) => {
+        const recipe = replay(info, list)
+        expect(recipe.speed).toBeGreaterThanOrEqual(MIN_VIDEO_SPEED)
+        expect(recipe.speed).toBeLessThanOrEqual(MAX_VIDEO_SPEED)
+        if (recipe.subtitles) {
+          expect(Number.isInteger(recipe.subtitles.offset)).toBe(true)
+          expect(Math.abs(recipe.subtitles.offset)).toBeLessThanOrEqual(MAX_SUBTITLE_OFFSET)
+          recipe.subtitles.cues.forEach((cue, i) => {
+            expect(Number.isInteger(cue.start) && Number.isInteger(cue.end)).toBe(true)
+            expect(cue.end).toBeGreaterThan(cue.start)
+            if (i > 0) expect(cue.start).toBeGreaterThanOrEqual(recipe.subtitles!.cues[i - 1].start)
+          })
+        }
+      })
+    )
+  })
+
+  test('字幕を入れ替えるとずらしは 0 に戻り、入れ方は引き継ぐ', () => {
+    const info = infoWith(10, 640, 360)
+    const cues = [{ start: 0, end: 1000, text: 'a' }]
+    const steps: VideoEdit[] = [
+      { type: 'subtitles', subtitles: { name: 'a.srt', cues } },
+      { type: 'subtitleOffset', offset: 1500 },
+      { type: 'subtitleMode', mode: 'embed' },
+      { type: 'subtitles', subtitles: { name: 'b.vtt', cues } },
+    ]
+    const recipe = replay(info, steps)
+    expect(recipe.subtitles).toEqual({ name: 'b.vtt', cues, offset: 0, mode: 'embed' })
+    // 字幕がないうちのずらし・入れ方は無視する
+    expect(replay(info, [{ type: 'subtitleOffset', offset: 10 }])).toEqual(createVideoRecipe(info))
+  })
+
+  test('速さか字幕があれば無加工ではない', () => {
+    const info = infoWith(10, 640, 360)
+    expect(isIdentityRecipe(replay(info, [{ type: 'speed', speed: 2 }]), info)).toBe(false)
+    expect(isIdentityRecipe(replay(info, [{ type: 'speed', speed: 2 }, { type: 'speed', speed: 1 }]), info)).toBe(true)
+    expect(
+      isIdentityRecipe(replay(info, [{ type: 'subtitles', subtitles: { name: 'a', cues: [] } }]), info)
+    ).toBe(false)
+  })
+})
+
+describe('restoreVideoRecipe', () => {
+  test('いまのレシピは JSON を通しても同じものに戻る', () => {
+    fc.assert(
+      fc.property(videoInfo, edits, (info, list) => {
+        const recipe = replay(info, list)
+        expect(restoreVideoRecipe(JSON.parse(JSON.stringify(recipe)), info)).toEqual(recipe)
+      })
+    )
+  })
+
+  test('版 1 のレシピ（速さ・字幕がない）は既定値で埋める', () => {
+    const info = infoWith(10, 640, 360)
+    const v1 = { trim: { start: 1, end: 5 }, crop: null, rotation: 90, flipH: true, flipV: false, muted: true }
+    expect(restoreVideoRecipe(v1, info)).toEqual({
+      ...createVideoRecipe(info),
+      trim: { start: 1, end: 5 },
+      rotation: 90,
+      flipH: true,
+      muted: true,
+    })
+  })
+
+  test('壊れた値でも不変条件を保ち、形が読めなければ null', () => {
+    fc.assert(
+      fc.property(videoInfo, fc.anything(), (info, junk) => {
+        const recipe = restoreVideoRecipe(junk, info)
+        if (recipe === null) return
+        expect(recipe.trim.end).toBeLessThanOrEqual(info.duration)
+        expect([0, 90, 180, 270]).toContain(recipe.rotation)
+      })
+    )
+    const info = infoWith(10, 640, 360)
+    expect(restoreVideoRecipe(null, info)).toBeNull()
+    expect(restoreVideoRecipe({ trim: 'x' }, info)).toBeNull()
+    expect(
+      restoreVideoRecipe({ trim: { start: -5, end: 99 }, speed: 99, subtitles: { cues: [null, { start: 'a' }] } }, info)
+    ).toMatchObject({ trim: { start: 0, end: 10 }, speed: 4, subtitles: { cues: [] } })
   })
 })

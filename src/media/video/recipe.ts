@@ -1,6 +1,8 @@
-import { applyTrim, isWholeClip, toEncodeTrim } from '../../state/trim'
+import { MIN_RANGE, applyTrim, isWholeClip, toEncodeTrim } from '../../state/trim'
 import type { Trim } from '../../types'
-import type { VideoCropRect, VideoEdit, VideoInfo, VideoRecipe, VideoRotation } from './types'
+import type { SubtitleCue } from '../text/subtitles'
+import { clampSpeed } from './timing'
+import type { VideoCropRect, VideoEdit, VideoInfo, VideoRecipe, VideoRotation, VideoSubtitles } from './types'
 
 /**
  * 動画レシピの遷移と、そこから導く寸法。React にも mediabunny にも依存しない純粋な計算だけを置く。
@@ -9,11 +11,20 @@ import type { VideoCropRect, VideoEdit, VideoInfo, VideoRecipe, VideoRotation } 
  * - trim は src/state/trim.ts の applyTrim の不変条件（尺の中、MIN_RANGE 以上の長さ）
  * - crop は null か、映像の内側に収まる偶数の整数矩形（多くの動画エンコーダは奇数の寸法を受け付けない）
  * - rotation は 0/90/180/270
+ * - speed は MIN_VIDEO_SPEED〜MAX_VIDEO_SPEED の 0.05 刻み
+ * - subtitles の offset は ±MAX_SUBTITLE_OFFSET の整数ミリ秒
  * 値の変わらない編集は同じオブジェクトを返すので、履歴に空の段が積まれない。
  */
 
 /** 切り抜きで残す最小の辺（画素）。映像がこれより小さければ映像の辺まで */
 export const MIN_CROP_SIZE = 16
+/** 字幕のずらしの上限（ミリ秒）。これより大きいずれは別の動画の字幕とみなしてよい */
+export const MAX_SUBTITLE_OFFSET = 3_600_000
+/**
+ * レシピの形の版。保存しておいたレシピ（セッションの復元など）を読み戻すときに restoreVideoRecipe が見る。
+ * 1: 区間・切り抜き・回転・反転・音声の除去 / 2: 速さ・音の高さ・字幕を追加
+ */
+export const VIDEO_RECIPE_VERSION = 2
 
 export interface VideoSize {
   width: number
@@ -28,6 +39,9 @@ export function createVideoRecipe(info: Pick<VideoInfo, 'duration'>): VideoRecip
     flipH: false,
     flipV: false,
     muted: false,
+    speed: 1,
+    preservePitch: true,
+    subtitles: null,
   }
 }
 
@@ -64,6 +78,32 @@ export function applyVideoEdit(recipe: VideoRecipe, edit: VideoEdit, info: Video
       return { ...recipe, flipV: !recipe.flipV }
     case 'mute':
       return edit.muted === recipe.muted ? recipe : { ...recipe, muted: edit.muted }
+    case 'speed': {
+      if (!Number.isFinite(edit.speed)) return recipe
+      const speed = clampSpeed(edit.speed)
+      return speed === recipe.speed ? recipe : { ...recipe, speed }
+    }
+    case 'preservePitch':
+      return edit.preserve === recipe.preservePitch ? recipe : { ...recipe, preservePitch: edit.preserve }
+    case 'subtitles': {
+      if (edit.subtitles === null) return recipe.subtitles === null ? recipe : { ...recipe, subtitles: null }
+      const subtitles: VideoSubtitles = {
+        name: edit.subtitles.name,
+        cues: validCues(edit.subtitles.cues),
+        offset: 0,
+        mode: recipe.subtitles?.mode ?? 'burn',
+      }
+      return sameSubtitles(subtitles, recipe.subtitles) ? recipe : { ...recipe, subtitles }
+    }
+    case 'subtitleOffset': {
+      if (!recipe.subtitles || !Number.isFinite(edit.offset)) return recipe
+      const offset = clampOffset(edit.offset)
+      return offset === recipe.subtitles.offset ? recipe : { ...recipe, subtitles: { ...recipe.subtitles, offset } }
+    }
+    case 'subtitleMode':
+      return !recipe.subtitles || recipe.subtitles.mode === edit.mode
+        ? recipe
+        : { ...recipe, subtitles: { ...recipe.subtitles, mode: edit.mode } }
     case 'reset': {
       const initial = createVideoRecipe(info)
       return sameRecipe(recipe, initial) ? recipe : initial
@@ -79,7 +119,9 @@ export function isIdentityRecipe(recipe: VideoRecipe, info: Pick<VideoInfo, 'dur
     recipe.rotation === 0 &&
     !recipe.flipH &&
     !recipe.flipV &&
-    !recipe.muted
+    !recipe.muted &&
+    recipe.speed === 1 &&
+    recipe.subtitles === null
   )
 }
 
@@ -187,8 +229,94 @@ function sameRecipe(a: VideoRecipe, b: VideoRecipe): boolean {
     a.rotation === b.rotation &&
     a.flipH === b.flipH &&
     a.flipV === b.flipV &&
-    a.muted === b.muted
+    a.muted === b.muted &&
+    a.speed === b.speed &&
+    a.preservePitch === b.preservePitch &&
+    a.subtitles === b.subtitles
   )
+}
+
+/** 時刻が読めて、終わりが始まりより後の字幕だけを、始まりの順に残す（安定ソート） */
+function validCues(cues: readonly SubtitleCue[]): SubtitleCue[] {
+  return cues
+    .filter((cue) => typeof cue === 'object' && cue !== null && typeof cue.text === 'string')
+    .map((cue) => ({ ...cue, start: Math.round(cue.start) + 0, end: Math.round(cue.end) + 0 }))
+    .filter((cue) => Number.isFinite(cue.start) && Number.isFinite(cue.end) && cue.end > cue.start)
+    .sort((a, b) => a.start - b.start)
+}
+
+/** 同じ字幕を読み直しただけなら履歴に積まない */
+function sameSubtitles(a: VideoSubtitles, b: VideoSubtitles | null): boolean {
+  if (!b || a.name !== b.name || a.offset !== b.offset || a.mode !== b.mode || a.cues.length !== b.cues.length) {
+    return false
+  }
+  return a.cues.every((cue, i) => {
+    const other = b.cues[i]
+    return (
+      cue.start === other.start &&
+      cue.end === other.end &&
+      cue.text === other.text &&
+      cue.id === other.id &&
+      cue.settings === other.settings
+    )
+  })
+}
+
+function clampOffset(offset: number): number {
+  // + 0 で -0 を 0 にそろえる（JSON を通すと区別が消え、比べたときに食い違う）
+  return Math.round(clamp(offset, -MAX_SUBTITLE_OFFSET, MAX_SUBTITLE_OFFSET)) + 0
+}
+
+/**
+ * 保存しておいたレシピを、いまの形（VIDEO_RECIPE_VERSION）と開いたファイルに合わせて読み戻す。
+ * 版 1（速さ・字幕がない）は既定値で埋める。値はすべて applyVideoEdit と同じ規則で丸め直すので、
+ * 壊れた値や別のファイルの寸法が混ざっていても不変条件は崩れない。形が読めなければ null
+ */
+export function restoreVideoRecipe(saved: unknown, info: VideoInfo): VideoRecipe | null {
+  if (typeof saved !== 'object' || saved === null) return null
+  const raw = saved as Partial<Record<keyof VideoRecipe, unknown>>
+  const trim = raw.trim as Partial<Trim> | undefined
+  if (!trim || typeof trim.start !== 'number' || typeof trim.end !== 'number') return null
+  const initial = createVideoRecipe(info)
+  const duration = initial.trim.end
+  // 不変条件を満たす区間はそのまま使う（丸め直すと浮動小数の端で値が動く）。外れていれば編集と同じ規則で詰める
+  const intact =
+    trim.start >= 0 && trim.end <= duration && trim.end - trim.start >= MIN_RANGE - 1e-9
+  const edits: VideoEdit[] = intact
+    ? []
+    : [
+        { type: 'trim', action: { type: 'setEnd', time: trim.end } },
+        { type: 'trim', action: { type: 'setStart', time: trim.start } },
+      ]
+  const crop = raw.crop as VideoCropRect | null | undefined
+  if (crop && typeof crop === 'object') edits.push({ type: 'crop', rect: crop })
+  let recipe = edits.reduce(
+    (current, edit) => applyVideoEdit(current, edit, info),
+    intact ? { ...initial, trim: { start: trim.start, end: trim.end } } : initial
+  )
+  const rotation = [0, 90, 180, 270].includes(raw.rotation as number) ? (raw.rotation as VideoRotation) : 0
+  recipe = {
+    ...recipe,
+    rotation,
+    flipH: raw.flipH === true,
+    flipV: raw.flipV === true,
+    muted: raw.muted === true,
+    speed: typeof raw.speed === 'number' ? clampSpeed(raw.speed) : 1,
+    preservePitch: raw.preservePitch !== false,
+  }
+  const subtitles = raw.subtitles as Partial<VideoSubtitles> | null | undefined
+  if (subtitles && typeof subtitles === 'object' && Array.isArray(subtitles.cues)) {
+    recipe = applyVideoEdit(
+      recipe,
+      { type: 'subtitles', subtitles: { name: String(subtitles.name ?? ''), cues: subtitles.cues } },
+      info
+    )
+    recipe = applyVideoEdit(recipe, { type: 'subtitleOffset', offset: Number(subtitles.offset ?? 0) }, info)
+    if (subtitles.mode === 'embed' || subtitles.mode === 'burn') {
+      recipe = applyVideoEdit(recipe, { type: 'subtitleMode', mode: subtitles.mode }, info)
+    }
+  }
+  return recipe
 }
 
 function clamp(value: number, min: number, max: number): number {

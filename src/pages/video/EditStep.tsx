@@ -1,3 +1,4 @@
+import type { RefObject } from 'react'
 import { CropIcon, FlipHorizontal2Icon, FlipVertical2Icon, RotateCcwIcon, RotateCwIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
@@ -13,8 +14,9 @@ import { Step, StepHint } from '../../components/Step'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import { editedSize, isIdentityRecipe } from '../../media/video'
-import type { VideoInfo } from '../../media/video'
+import type { VideoFormat, VideoInfo } from '../../media/video'
 import { videoMessages } from './messages'
+import { SpeedControl, SubtitlesControl } from './TimingControls'
 import type { VideoRecipeState } from './useVideoRecipe'
 
 
@@ -24,10 +26,24 @@ interface EditStepProps {
   state: VideoRecipeState
   cropping: boolean
   onCroppingChange: (cropping: boolean) => void
+  /** 出力の形式。GIF では字幕を焼き込むしかない */
+  format: VideoFormat
+  /** 字幕ファイルを選ばせる */
+  onAddSubtitles: () => void
+  videoRef: RefObject<HTMLVideoElement | null>
 }
 
-/** 編集（取り消し・回転・反転・切り抜き・音声の除去）の手順。トリムは下のタイムラインで行う */
-export function EditStep({ index, info, state, cropping, onCroppingChange }: EditStepProps) {
+/** 編集（取り消し・回転・反転・切り抜き・音声の除去・速さ・字幕）の手順。トリムは下のタイムラインで行う */
+export function EditStep({
+  index,
+  info,
+  state,
+  cropping,
+  onCroppingChange,
+  format,
+  onAddSubtitles,
+  videoRef,
+}: EditStepProps) {
   const { t } = useI18n()
   const m = useLocalMessages(videoMessages)
   const { recipe, edit } = state
@@ -104,6 +120,16 @@ export function EditStep({ index, info, state, cropping, onCroppingChange }: Edi
         onChange={(muted) => edit({ type: 'mute', muted })}
         disabled={disabled || !hasAudio}
         title={hasAudio ? undefined : m.noAudio}
+      />
+
+      <SpeedControl recipe={recipe} info={info} edit={edit} />
+      <SubtitlesControl
+        recipe={recipe}
+        info={info}
+        format={format}
+        edit={edit}
+        onAdd={onAddSubtitles}
+        videoRef={videoRef}
       />
 
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
