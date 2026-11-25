@@ -6,13 +6,14 @@ import type { Route } from './routes'
 const knownRoute: fc.Arbitrary<Route> = fc.oneof(
   fc.constant({ name: 'hub' } as const),
   fc.constant({ name: 'convert' } as const),
+  fc.constant({ name: 'about' } as const),
   fc.constantFrom(...MEDIA_KINDS).map((kind) => ({ name: 'edit', kind }) as const)
 )
 
 /** 実際の hash に近い形（`/` 区切りの短い語）と、まったく任意の文字列を混ぜる */
 const hash = fc.oneof(
   fc
-    .array(fc.constantFrom('', 'edit', 'convert', 'video', 'pdf', 'x', 'Edit'), { maxLength: 4 })
+    .array(fc.constantFrom('', 'edit', 'convert', 'about', 'video', 'pdf', 'x', 'Edit'), { maxLength: 4 })
     .map((segments) => `#/${segments.join('/')}`),
   fc.string()
 )

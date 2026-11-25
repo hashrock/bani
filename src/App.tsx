@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import './App.css'
 import { Toaster } from '@/components/ui/sonner'
@@ -17,6 +17,9 @@ import { ConvertPage } from './pages/convert/ConvertPage'
 import { HubPage } from './pages/HubPage'
 import { MessagePage } from './pages/MessagePage'
 import { CAPABILITIES, EDIT_PAGES } from './pages/registry'
+
+/** ライセンスの本文（約 100KB）を抱えるので、開いたときだけ読み込む */
+const AboutPage = lazy(() => import('./pages/about/AboutPage'))
 
 /** 取り込みの通知は 1 件ずつ出し、新しい取り込みで前のものを置き換える */
 const INTAKE_TOAST_ID = 'intake'
@@ -110,7 +113,7 @@ function App() {
 
   // 保存の操作がない画面（入口など）でも ⌘S でブラウザの「ページを保存」を開かせない。
   // 編集画面と一括変換は自分の ⌘S を持つ（画面は App より後に読み込まれるので、ここで先に奪うと届かなくなる）
-  useHotkey('mod+s', () => {}, { inEditable: true, enabled: route.name === 'hub' || route.name === 'notFound' })
+  useHotkey('mod+s', () => {}, { inEditable: true, enabled: route.name === 'hub' || route.name === 'about' || route.name === 'notFound' })
 
   const page = (() => {
     switch (route.name) {
@@ -136,6 +139,8 @@ function App() {
         return (
           <ConvertPage incoming={opened.convert} isDragging={drop.isDragging} />
         )
+      case 'about':
+        return <AboutPage />
       case 'notFound':
         return <MessagePage title={t.notFoundTitle} />
     }

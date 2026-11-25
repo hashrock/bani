@@ -1,4 +1,4 @@
-import { Monitor, Moon, Sun } from 'lucide-react'
+import { Info, Monitor, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -110,6 +110,25 @@ export function ThemeSwitch() {
   )
 }
 
+/** Bani について（版・ライセンス）へ。編集画面からも辿れるよう見出しに置く。離れる前に保存していない変更を確かめる */
+export function AboutButton() {
+  const shell = useLocalMessages(shellMessages)
+  return (
+    <Button asChild variant="ghost" size="icon-xs" className="text-muted-foreground">
+      <a
+        href={formatRoute({ name: 'about' })}
+        title={shell.about}
+        aria-label={shell.about}
+        onClick={(event) => {
+          if (!confirmLeave()) event.preventDefault()
+        }}
+      >
+        <Info />
+      </a>
+    </Button>
+  )
+}
+
 /**
  * hashrock のサービス切り替え（index.html が読み込む）。どの画面でも見出しの右端に置き、
  * 作業領域の上には何も浮かせない。配色は省くと OS に従うので、アプリで選んだ方を必ず渡す。
@@ -120,12 +139,13 @@ export function ServiceSwitcher() {
   return <hashrock-switcher theme={theme} />
 }
 
-/** 見出しの右端の道具（言語・配色・サービスの切り替え）。サイドバーと入口で同じ並びにする */
+/** 見出しの右端の道具（言語・配色・Bani について・サービスの切り替え）。サイドバーと入口で同じ並びにする */
 export function HeadTools() {
   return (
     <>
       <LangSwitch className="ml-auto" />
       <ThemeSwitch />
+      <AboutButton />
       <ServiceSwitcher />
     </>
   )
