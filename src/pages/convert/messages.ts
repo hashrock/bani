@@ -32,20 +32,11 @@ export const convertMessages = defineMessages({
     bomRemove: '外す',
     bomHint: 'BOM を持てるのは UTF-8 / UTF-16 だけです。',
 
-    // 保存先
-    stepSave: '保存先',
-    saveFolder: 'フォルダ',
-    saveZip: 'ZIP',
-    saveFolderHint: '選んだフォルダに 1 つずつ書き込みます。同じ名前のファイルは上書きします。',
-    saveZipHint: '変換が終わったら 1 つの ZIP にまとめて保存します。',
-    folderUnavailable: 'このブラウザではフォルダを選べないため、ZIP にまとめて保存します。',
-    convert: (count: number) => `${count} ファイルを変換`,
-    zipping: 'ZIP にまとめています…',
+    // 保存
+    convert: (count: number) => `${count} ファイルを変換して保存`,
     saveZipAgain: 'ZIP を保存',
-    zipSaved: (name: string) => `${name} を保存しました`,
-    zipCancelled: 'ZIP の保存を中止しました。下のボタンから保存し直せます。',
-    zipFailed: (message: string) => `ZIP を保存できませんでした: ${message}`,
-    nothingToZip: '書き出せたファイルがないため、ZIP は作りませんでした。',
+    zipCancelled: 'ZIP の保存を中止しました。「ZIP を保存」から保存し直せます。',
+    nothingToSave: '変換できたファイルがないため、何も保存していません。',
 
     // 一覧
     renamed: (name: string) => `${name} として保存`,
@@ -83,19 +74,10 @@ export const convertMessages = defineMessages({
     bomRemove: 'Remove',
     bomHint: 'Only UTF-8 / UTF-16 can carry a BOM.',
 
-    stepSave: 'Save to',
-    saveFolder: 'Folder',
-    saveZip: 'ZIP',
-    saveFolderHint: 'Writes each file into the chosen folder. Files with the same name are overwritten.',
-    saveZipHint: 'When conversion finishes, saves everything as one ZIP.',
-    folderUnavailable: 'This browser cannot pick folders, so the files are saved as one ZIP.',
-    convert: (count: number) => `Convert ${count} files`,
-    zipping: 'Building ZIP…',
+    convert: (count: number) => `Convert and save ${count} files`,
     saveZipAgain: 'Save ZIP',
-    zipSaved: (name: string) => `Saved ${name}`,
-    zipCancelled: 'Saving the ZIP was cancelled. Use the button below to save it again.',
-    zipFailed: (message: string) => `Could not save the ZIP: ${message}`,
-    nothingToZip: 'No file was converted, so no ZIP was created.',
+    zipCancelled: 'Saving the ZIP was cancelled. Use “Save ZIP” to save it again.',
+    nothingToSave: 'No file was converted, so nothing was saved.',
 
     renamed: (name: string) => `Saved as ${name}`,
 

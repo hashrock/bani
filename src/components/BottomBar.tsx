@@ -9,11 +9,10 @@ import { useI18n } from '../i18n/context'
 import { isWholeClip, trimDuration } from '../state/trim'
 import type { TrimAction } from '../state/trim'
 import type { ConversionResult, Trim } from '../types'
+import { useHotkey } from '../core/useHotkey'
 import { formatBytes, formatTimecode } from '../utils/format'
 import { TimeField } from './TimeField'
 import { Timeline } from './Timeline'
-import type { SaveState } from '../core/useSave'
-import { SaveButton } from './SaveButton'
 
 interface BottomBarProps {
   file: File
@@ -35,7 +34,6 @@ interface BottomBarProps {
   stale: boolean
   onConvert: () => void
   onCancel: () => void
-  save: SaveState
 }
 
 /**
@@ -57,7 +55,6 @@ export function BottomBar({
   stale,
   onConvert,
   onCancel,
-  save,
 }: BottomBarProps) {
   const { t } = useI18n()
   const { start, end } = trim
@@ -90,6 +87,9 @@ export function BottomBar({
     playback.toggle()
   }
 
+  // Space で再生・一時停止（音声の画面と同じ）。ボタンやつまみの上ではそれ自身の操作に任せる
+  useHotkey('space', togglePlay, { enabled: hasTimeline })
+
   const compressionRatio = result
     ? (1 - result.convertedSize / result.originalSize) * 100
     : 0
@@ -109,7 +109,7 @@ export function BottomBar({
             size="icon-sm"
             className="rounded-full border-input hover:border-primary"
             onClick={togglePlay}
-            title={playback.playing ? t.pause : t.play}
+            title={`${playback.playing ? t.pause : t.play} (Space)`}
             aria-label={playback.playing ? t.pause : t.play}
           >
             {playback.playing ? <PauseIcon className="fill-current" /> : <PlayIcon className="fill-current" />}
@@ -226,7 +226,6 @@ export function BottomBar({
               >
                 {stale ? `● ${t.reconvert}` : t.reconvert}
               </Button>
-              <SaveButton save={save} className="w-auto" />
             </>
           )}
         </div>

@@ -1,16 +1,14 @@
-import {
-  CropIcon,
-  FlipHorizontal2Icon,
-  FlipVertical2Icon,
-  Redo2Icon,
-  RotateCcwIcon,
-  RotateCwIcon,
-  Undo2Icon,
-  VolumeXIcon,
-} from 'lucide-react'
-import type { ReactNode } from 'react'
+import { CropIcon, FlipHorizontal2Icon, FlipVertical2Icon, RotateCcwIcon, RotateCwIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
+import {
+  HistoryButtons,
+  IconButton,
+  IconToggle,
+  LinkButton,
+  SwitchField,
+  ToolbarDivider,
+} from '../../components/SidebarParts'
 import { Step, StepHint } from '../../components/Step'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
@@ -19,7 +17,6 @@ import type { VideoInfo } from '../../media/video'
 import { videoMessages } from './messages'
 import type { VideoRecipeState } from './useVideoRecipe'
 
-const modKey = () => (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl+')
 
 interface EditStepProps {
   index: number
@@ -40,15 +37,10 @@ export function EditStep({ index, info, state, cropping, onCroppingChange }: Edi
   const size = info ? editedSize(info, recipe) : null
 
   return (
-    <Step index={index} title={m.stepEdit}>
+    <Step index={index} title={t.stepEdit}>
       <div className="flex flex-wrap items-center gap-1">
-        <IconButton label={`${t.undo} (${modKey()}Z)`} onClick={state.undo} disabled={!state.canUndo}>
-          <Undo2Icon />
-        </IconButton>
-        <IconButton label={`${t.redo} (${modKey()}⇧Z)`} onClick={state.redo} disabled={!state.canRedo}>
-          <Redo2Icon />
-        </IconButton>
-        <span className="mx-1 h-5 w-px bg-border" />
+        <HistoryButtons canUndo={state.canUndo} canRedo={state.canRedo} onUndo={state.undo} onRedo={state.redo} />
+        <ToolbarDivider />
         <IconButton
           label={m.rotateLeft}
           onClick={() => edit({ type: 'rotate', turns: -1 })}
@@ -106,18 +98,13 @@ export function EditStep({ index, info, state, cropping, onCroppingChange }: Edi
       </div>
       {cropping && <StepHint>{m.cropHint}</StepHint>}
 
-      <Toggle
-        variant="outline"
-        size="sm"
-        className="h-7 self-start px-2 text-xs"
-        pressed={recipe.muted}
-        onPressedChange={(muted) => edit({ type: 'mute', muted })}
+      <SwitchField
+        label={m.mute}
+        checked={recipe.muted}
+        onChange={(muted) => edit({ type: 'mute', muted })}
         disabled={disabled || !hasAudio}
         title={hasAudio ? undefined : m.noAudio}
-      >
-        <VolumeXIcon />
-        {m.mute}
-      </Toggle>
+      />
 
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>
@@ -129,71 +116,11 @@ export function EditStep({ index, info, state, cropping, onCroppingChange }: Edi
           )}
         </span>
         {info && !isIdentityRecipe(recipe, info) && (
-          <Button
-            variant="link"
-            size="xs"
-            className="h-auto px-0 text-[11px] font-normal text-muted-foreground underline"
-            onClick={() => edit({ type: 'reset' })}
-          >
-            {m.resetEdits}
-          </Button>
+          <LinkButton className="self-auto" onClick={() => edit({ type: 'reset' })}>
+            {t.resetEdits}
+          </LinkButton>
         )}
       </div>
     </Step>
-  )
-}
-
-function IconButton({
-  label,
-  onClick,
-  disabled,
-  children,
-}: {
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  children: ReactNode
-}) {
-  return (
-    <Button
-      variant="outline"
-      size="icon-sm"
-      className="size-7"
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-    >
-      {children}
-    </Button>
-  )
-}
-
-function IconToggle({
-  label,
-  pressed,
-  onPressedChange,
-  disabled,
-  children,
-}: {
-  label: string
-  pressed: boolean
-  onPressedChange: () => void
-  disabled?: boolean
-  children: ReactNode
-}) {
-  return (
-    <Toggle
-      variant="outline"
-      size="sm"
-      className="size-7 min-w-7 px-0"
-      pressed={pressed}
-      onPressedChange={onPressedChange}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-    >
-      {children}
-    </Toggle>
   )
 }

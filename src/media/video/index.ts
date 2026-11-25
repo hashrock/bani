@@ -33,6 +33,7 @@ export {
   VIDEO_MIME_TYPES,
   applyResolutionPreset,
   computeFrameDrawPlan,
+  defaultVideoOutput,
   isResolutionPresetActive,
   resolutionPresetsFor,
   videoBitrate,

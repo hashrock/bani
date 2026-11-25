@@ -5,6 +5,11 @@
 export interface OpenedFile {
   file: File
   handle: FileSystemFileHandle | null
+  /**
+   * フォルダごと受け取ったときの、落としたフォルダからの相対パス（`photos/2024/a.jpg`）。
+   * 1 つずつ受け取ったファイルにはない
+   */
+  path?: string
 }
 
 export const openedFromFile = (file: File): OpenedFile => ({ file, handle: null })
@@ -15,12 +20,16 @@ export type AcceptSpec = string
 /**
  * ファイルを選ばせる。使えるなら showOpenFilePicker でハンドルごと受け取り、
  * 使えなければ見えない <input type="file"> に頼る。キャンセルされたら空配列。
+ * directory なら、フォルダを選ばせて中のファイルを（相対パス付きで）全部受け取る。
  */
 export async function pickFiles(options: {
   multiple?: boolean
   accept?: AcceptSpec
+  directory?: boolean
 }): Promise<OpenedFile[]> {
-  const { multiple = false, accept } = options
+  const { multiple = false, accept, directory = false } = options
+  // フォルダの中身はハンドルを使わない（上書き保存の先にはしない）ので、どのブラウザでも <input> で選ぶ
+  if (directory) return pickWithInput(true, undefined, true)
   if (window.showOpenFilePicker) {
     try {
       const handles = await window.showOpenFilePicker({
@@ -37,14 +46,21 @@ export async function pickFiles(options: {
   return pickWithInput(multiple, accept)
 }
 
-function pickWithInput(multiple: boolean, accept?: AcceptSpec): Promise<OpenedFile[]> {
+function pickWithInput(multiple: boolean, accept?: AcceptSpec, directory = false): Promise<OpenedFile[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
     input.multiple = multiple
+    input.webkitdirectory = directory
     if (accept) input.accept = accept
     input.addEventListener('change', () => {
-      resolve(Array.from(input.files ?? []).map(openedFromFile))
+      resolve(
+        Array.from(input.files ?? []).map((file) =>
+          directory && file.webkitRelativePath
+            ? { file, handle: null, path: file.webkitRelativePath }
+            : openedFromFile(file)
+        )
+      )
     })
     input.addEventListener('cancel', () => resolve([]))
     input.click()
@@ -74,10 +90,39 @@ export function toPickerTypes(accept: AcceptSpec): FilePickerAcceptType[] | unde
   return [{ accept: record }]
 }
 
+function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  // readEntries は一度に全部を返すとは限らない（Chrome は 100 件ずつ）ので、空になるまで読む
+  return new Promise((resolve, reject) => {
+    const all: FileSystemEntry[] = []
+    const next = () =>
+      reader.readEntries((batch) => {
+        if (batch.length === 0) resolve(all)
+        else {
+          all.push(...batch)
+          next()
+        }
+      }, reject)
+    next()
+  })
+}
+
+/** フォルダの中をたどってファイルを集める。path は落としたものからの相対パス */
+async function walkEntry(entry: FileSystemEntry, out: OpenedFile[]): Promise<void> {
+  if (entry.isFile) {
+    const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject))
+    out.push({ file, handle: null, path: entry.fullPath.replace(/^\/+/, '') })
+    return
+  }
+  if (entry.isDirectory) {
+    const children = await readAllEntries((entry as FileSystemDirectoryEntry).createReader())
+    for (const child of children) await walkEntry(child, out)
+  }
+}
+
 /**
- * ドロップされたものを、ハンドルも含めて取り出す。
- * getAsFileSystemHandle はイベントの中で同期的に呼ばないと使えなくなるので、
- * 先に Promise を集めてから待つ。フォルダは（まだ）扱わないので外す。
+ * ドロップされたものを、ハンドルも含めて取り出す。フォルダは中までたどり、相対パスを付ける。
+ * getAsFileSystemHandle・webkitGetAsEntry はイベントの中で同期的に呼ばないと使えなくなるので、
+ * 先に Promise と入口を集めてから待つ。
  */
 export function collectDropped(dataTransfer: DataTransfer): Promise<OpenedFile[]> {
   const items = Array.from(dataTransfer.items).filter((item) => item.kind === 'file')
@@ -86,19 +131,22 @@ export function collectDropped(dataTransfer: DataTransfer): Promise<OpenedFile[]
   }
   const entries = items.map((item) => ({
     file: item.getAsFile(),
+    entry: item.webkitGetAsEntry?.() ?? null,
     handle: item.getAsFileSystemHandle?.().catch(() => null) ?? Promise.resolve(null),
   }))
-  return Promise.all(
-    entries.map(async ({ file, handle }) => {
+  return (async () => {
+    const out: OpenedFile[] = []
+    for (const { file, entry, handle } of entries) {
       const resolved = await handle
-      if (resolved?.kind === 'directory') return null
-      if (!file) return null
-      return {
-        file,
-        handle: resolved?.kind === 'file' ? (resolved as FileSystemFileHandle) : null,
+      if (entry?.isDirectory || resolved?.kind === 'directory') {
+        if (entry) await walkEntry(entry, out)
+        continue
       }
-    })
-  ).then((opened) => opened.filter((item): item is OpenedFile => item !== null))
+      if (!file) continue
+      out.push({ file, handle: resolved?.kind === 'file' ? (resolved as FileSystemFileHandle) : null })
+    }
+    return out
+  })()
 }
 
 /** 貼り付けられたものをファイルにする。ファイルがなければテキストを .txt として扱う */

@@ -2,20 +2,32 @@ import { ExternalLink } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { SidebarHead } from '../../components/BrandMark'
-import { SourceName } from '../../components/SidebarParts'
+import { SaveManyButton } from '../../components/SaveManyButton'
+import {
+  CheckboxField,
+  Fact,
+  Facts,
+  LinkButton,
+  Notice,
+  SidebarFooter,
+  SmallButton,
+  SourceName,
+} from '../../components/SidebarParts'
 import { Step, StepHint } from '../../components/Step'
 import { openedFromFile, pickFiles } from '../../core/opened'
 import type { OpenedFile } from '../../core/opened'
-import { downloadBlob } from '../../core/save'
+import { canPickFolder, pickSaveFolder, planSaveMany, saveFiles } from '../../core/save'
+import type { SaveManyMethod } from '../../core/save'
+import { useHotkey } from '../../core/useHotkey'
+import { savedFilesMessage } from '../../core/useSave'
+import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import {
   buildEntryTree,
   extractEntries,
   extractEntry,
   probeArchive,
-  zipRenderedFiles,
   type ArchiveInfo,
   type ArchiveTreeNode,
 } from '../../media/archive'
@@ -23,12 +35,18 @@ import { basename } from '../../media/archive/names'
 import type { RenderedFile } from '../../media/types'
 import { isAbortError } from '../../utils/abort'
 import { formatBytes } from '../../utils/format'
-import { pickOutputDirectory } from '../../utils/fileSystem'
 import { EntryTree } from './EntryTree'
-import { ARCHIVE_ACCEPT, canPickDirectory, describeError, writeToDirectory, type AddedFile } from './io'
+import { ARCHIVE_ACCEPT, describeError, type AddedFile } from './io'
 import { messages } from './messages'
-import { Fact, Facts, Notice, SplitButton, type SplitAction } from './parts'
-import { archiveBaseName, compressionRatio, downloadNames, extractionPaths, filesUnder, toggleNode } from './treeModel'
+import {
+  archiveBaseName,
+  compressionRatio,
+  extractionPaths,
+  filesUnder,
+  isMacJunk,
+  planExtractLayout,
+  toggleNode,
+} from './treeModel'
 
 const FORMAT_LABEL: Record<ArchiveInfo['format'], string> = {
   zip: 'ZIP',
@@ -40,9 +58,7 @@ const FORMAT_LABEL: Record<ArchiveInfo['format'], string> = {
 type Probe =
   | { status: 'loading'; progress: number }
   | { status: 'error'; message: string }
-  | { status: 'ready'; info: ArchiveInfo; root: ArchiveTreeNode }
-
-type Method = 'folder' | 'zip' | 'each'
+  | { status: 'ready'; info: ArchiveInfo }
 
 /** 根の直下がフォルダ 1 つだけのとき（よくある形）は、最初から開いておく */
 function initialExpanded(root: ArchiveTreeNode): Set<string> {
@@ -55,7 +71,21 @@ function initialExpanded(root: ArchiveTreeNode): Set<string> {
   return expanded
 }
 
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+/**
+ * フォルダへ展開するときの置き方に直す。中身をばらまかないよう、1 つのフォルダに収まっていなければ
+ * 圧縮ファイルの名前のフォルダを作ってその中へ入れる（planExtractLayout）
+ */
+function toFolderLayout(files: readonly RenderedFile[], archiveBase: string): RenderedFile[] {
+  const layout = planExtractLayout(
+    files.map((file) => file.filename),
+    archiveBase
+  )
+  const blobs = new Map(files.map((file) => [file.filename, file.blob]))
+  return layout.files.map(({ source, target }) => ({
+    blob: blobs.get(source)!,
+    filename: layout.folder === null ? target : `${layout.folder}/${target}`,
+  }))
+}
 
 interface ViewArchiveProps {
   opened: OpenedFile
@@ -66,10 +96,12 @@ interface ViewArchiveProps {
 
 /** 開いた圧縮ファイルの中身を一覧し、選んで展開する・Bani で開く */
 export function ViewArchive({ opened, onFiles, onCreate }: ViewArchiveProps) {
+  const { t } = useI18n()
   const m = useLocalMessages(messages)
   const { file } = opened
   const base = archiveBaseName(file.name)
   const [probe, setProbe] = useState<Probe>({ status: 'loading', progress: 0 })
+  const [showJunk, setShowJunk] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   // 走っている展開の中止口と進み具合。進み具合は別に持ち、更新のたびに中止口が入れ替わらないようにする
@@ -83,9 +115,8 @@ export function ViewArchive({ opened, onFiles, onCreate }: ViewArchiveProps) {
       onProgress: (progress) => setProbe({ status: 'loading', progress }),
     })
       .then((info) => {
-        const root = buildEntryTree(info.entries)
-        setExpanded(initialExpanded(root))
-        setProbe({ status: 'ready', info, root })
+        setExpanded(initialExpanded(buildEntryTree(info.entries.filter((entry) => !isMacJunk(entry.path)))))
+        setProbe({ status: 'ready', info })
       })
       .catch((error: unknown) => {
         if (isAbortError(error)) return
@@ -100,15 +131,33 @@ export function ViewArchive({ opened, onFiles, onCreate }: ViewArchiveProps) {
   // 画面を離れたら走っている展開も止める（終わったあとの abort は何もしない）
   useEffect(() => () => job?.abort(), [job])
 
-  const root = probe.status === 'ready' ? probe.root : null
   const info = probe.status === 'ready' ? probe.info : null
+  // macOS が圧縮のときに足す付随ファイル（__MACOSX/、._名前、.DS_Store）は、既定では一覧・展開から外す
+  const junkCount = useMemo(() => info?.entries.filter((entry) => !entry.isDirectory && isMacJunk(entry.path)).length ?? 0, [info])
+  const entries = useMemo(
+    () => (info ? (showJunk ? info.entries : info.entries.filter((entry) => !isMacJunk(entry.path))) : null),
+    [info, showJunk]
+  )
+  const root = useMemo(() => (entries ? buildEntryTree(entries) : null), [entries])
   const allSelectable = useMemo(() => (root ? toggleNode(root, new Set()) : new Set<string>()), [root])
-  const folderCount = useMemo(() => info?.entries.filter((entry) => entry.isDirectory).length ?? 0, [info])
+  // 付随ファイルを隠したら、選択からも外す
+  const selection = useMemo(() => new Set([...selected].filter((path) => allSelectable.has(path))), [selected, allSelectable])
+  const folderCount = useMemo(() => entries?.filter((entry) => entry.isDirectory).length ?? 0, [entries])
   const fileCount = useMemo(() => (root ? filesUnder(root, false).length : 0), [root])
-  const encryptedCount = useMemo(() => info?.entries.filter((entry) => entry.encrypted).length ?? 0, [info])
+  const encryptedCount = useMemo(() => entries?.filter((entry) => entry.encrypted).length ?? 0, [entries])
   const shiftJis = useMemo(() => info?.entries.some((entry) => entry.nameEncoding === 'shift_jis') ?? false, [info])
 
-  /** 展開して、最後の書き出しを do に任せる。中止・進み具合・失敗の通知をまとめて持つ */
+  /**
+   * 展開する中身の指定。全部を選んでいても、隠している付随ファイルがあれば「全部」とは言わず
+   * 見えているファイルだけを名指しする（'all' は隠したものまで展開してしまう）
+   */
+  const pathsFor = (paths: ReadonlySet<string>) => {
+    if (!root) return []
+    const planned = extractionPaths(root, new Set(paths))
+    return planned === 'all' && !showJunk && junkCount > 0 ? filesUnder(root) : planned
+  }
+
+  /** 展開して、最後の書き出しを work に任せる。中止・進み具合・失敗の通知をまとめて持つ */
   const withJob = useCallback(
     async (work: (signal: AbortSignal, onProgress: (p: number) => void) => Promise<void>) => {
       if (job) return
@@ -128,54 +177,26 @@ export function ViewArchive({ opened, onFiles, onCreate }: ViewArchiveProps) {
     [job, m]
   )
 
-  const extract = async (paths: Set<string>, method: Method) => {
+  const extract = async (paths: ReadonlySet<string>, method: SaveManyMethod) => {
     if (!root || paths.size === 0) return
     // フォルダ選びはクリックの直後でないと断られるので、展開より先に聞く
-    let directory: FileSystemDirectoryHandle | null = null
+    let directory: FileSystemDirectoryHandle | undefined
     if (method === 'folder') {
       try {
-        directory = await pickOutputDirectory()
+        directory = await pickSaveFolder()
       } catch (error) {
         if (!isAbortError(error)) toast.error(describeError(error, m))
         return
       }
     }
     await withJob(async (signal, onProgress) => {
-      const files = await extractEntries(file, extractionPaths(root, paths), { signal, onProgress })
-      if (directory) {
-        const folder = await writeToDirectory(directory, files, base)
-        toast(m.extractedTo(files.length, folder))
-        return
-      }
-      if (files.length === 1 || method === 'each') {
-        const names = downloadNames(files.map((item) => item.filename))
-        for (const [i, item] of files.entries()) {
-          downloadBlob(item.blob, names[i])
-          // 続けざまのダウンロードはブラウザに間引かれることがあるので、少し間を空ける
-          if (i < files.length - 1) await pause(200)
-        }
-        toast(m.downloaded(files.length))
-        return
-      }
-      const zipped = await zipRenderedFiles(files, `${base}-extracted`, { signal })
-      downloadBlob(zipped.blob, zipped.filename)
-      toast(m.downloaded(files.length))
+      const files = await extractEntries(file, pathsFor(paths), { signal, onProgress })
+      const saved = await saveFiles(method === 'folder' ? toFolderLayout(files, base) : files, method, {
+        zipName: `${base}-extracted`,
+        folder: directory,
+      })
+      toast(savedFilesMessage(t, saved))
     })
-  }
-
-  /** 展開のしかたの候補。フォルダに書き出せるならそれが主、なければダウンロード */
-  const actionsFor = (paths: Set<string>, label: string): { primary: SplitAction; others: SplitAction[] } => {
-    const folder: SplitAction = { key: 'folder', label: m.extractToFolder, run: () => void extract(paths, 'folder') }
-    const zip: SplitAction = { key: 'zip', label: m.downloadZip, run: () => void extract(paths, 'zip') }
-    const each: SplitAction = {
-      key: 'each',
-      label: paths.size === 1 ? m.downloadOne : m.downloadEach,
-      run: () => void extract(paths, 'each'),
-    }
-    const downloads = paths.size === 1 ? [each] : [zip, each]
-    if (canPickDirectory()) return { primary: { ...folder, label }, others: downloads }
-    const [first, ...rest] = downloads
-    return { primary: { ...first, label }, others: rest }
   }
 
   const openInBani = (node: ArchiveTreeNode) => {
@@ -191,7 +212,7 @@ export function ViewArchive({ opened, onFiles, onCreate }: ViewArchiveProps) {
     const modified = new Map(info.entries.map((entry) => [entry.path, entry.modified]))
     void withJob(async (signal, onProgress) => {
       const files: RenderedFile[] =
-        allSelectable.size === 0 ? [] : await extractEntries(file, extractionPaths(root, allSelectable), { signal, onProgress })
+        allSelectable.size === 0 ? [] : await extractEntries(file, pathsFor(allSelectable), { signal, onProgress })
       onCreate({
         name: base,
         files: files.map((item) => ({
@@ -207,15 +228,28 @@ export function ViewArchive({ opened, onFiles, onCreate }: ViewArchiveProps) {
 
   const busy = job !== null
   const ratio = info ? compressionRatio(info.totalSize, info.archiveSize) : null
-  const selectedActions = actionsFor(selected, m.extractSelected(selected.size))
-  const allActions = actionsFor(allSelectable, m.extractAll)
+  // 選んだものがあればそれを、なければ全部を展開する（保存ボタンと同じく、主の操作は 1 つ）
+  const targets = selection.size > 0 ? selection : allSelectable
+  const extractLabel = selection.size > 0 ? m.extractSelected(selection.size) : m.extractAll
+
+  // ⌘S は主の展開方法で展開する（ほかの画面の保存と同じキー）。展開できないあいだもブラウザの保存は開かせない
+  useHotkey(
+    'mod+s',
+    () => {
+      if (busy || targets.size === 0) return
+      void extract(targets, planSaveMany({ canPickFolder: canPickFolder(), count: targets.size }).primary)
+    },
+    { inEditable: true }
+  )
+  useHotkey('mod+a', () => setSelected(new Set(allSelectable)), { enabled: allSelectable.size > 0 })
+  useHotkey('escape', () => setSelected(new Set()), { enabled: selection.size > 0 })
 
   return (
     <div className="app">
       <aside className="sidebar">
         <SidebarHead />
         <div className="sidebar-scroll">
-          <Step index={1} title={m.stepInput}>
+          <Step index={1} title={t.stepInput}>
             <div className="flex flex-col gap-2">
               <SourceName title={file.name}>{file.name}</SourceName>
               {info && (
@@ -236,62 +270,43 @@ export function ViewArchive({ opened, onFiles, onCreate }: ViewArchiveProps) {
               {probe.status === 'error' && <Notice tone="warn">{probe.message}</Notice>}
               {shiftJis && <Notice>{m.shiftJisNotice}</Notice>}
               {encryptedCount > 0 && <Notice tone="warn">{m.encryptedNotice(encryptedCount)}</Notice>}
+              {junkCount > 0 && (
+                <CheckboxField checked={showJunk} onChange={setShowJunk}>
+                  {m.showMacJunk(junkCount)}
+                </CheckboxField>
+              )}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              <Button
-                variant="outline"
-                size="xs"
-                className="h-7 px-2.5"
+              <SmallButton
                 onClick={async () => {
                   const [picked] = await pickFiles({ accept: ARCHIVE_ACCEPT })
                   if (picked) onFiles([picked])
                 }}
               >
-                {m.openArchive}
-              </Button>
-              <Button variant="outline" size="xs" className="h-7 px-2.5" onClick={() => onCreate(null)}>
-                {m.newArchive}
-              </Button>
+                {t.selectFile}
+              </SmallButton>
+              <SmallButton onClick={() => onCreate(null)}>{m.newArchive}</SmallButton>
             </div>
           </Step>
 
           {root && (
             <Step index={2} title={m.stepActions}>
-              <SplitButton
-                primary={selectedActions.primary}
-                others={selectedActions.others}
-                disabled={busy || selected.size === 0}
-                moreLabel={m.extractMore}
-              />
-              <SplitButton
-                variant="outline"
-                primary={allActions.primary}
-                others={allActions.others}
-                disabled={busy || allSelectable.size === 0}
-                moreLabel={m.extractMore}
-              />
-              <StepHint>{canPickDirectory() ? m.extractHintFolder : m.extractHintDownload}</StepHint>
-              <Button
-                variant="link"
-                size="xs"
-                className="h-auto self-start px-0 text-[11px] font-normal text-muted-foreground underline hover:text-foreground"
-                disabled={busy}
-                onClick={seedNew}
-              >
+              <StepHint>{canPickFolder() ? m.extractHintFolder : m.extractHintDownload}</StepHint>
+              <LinkButton disabled={busy} onClick={seedNew}>
                 {m.seedNew}
-              </Button>
+              </LinkButton>
             </Step>
           )}
         </div>
 
-        {job && (
-          <div className="sidebar-footer">
-            <Progress value={jobProgress * 100} className="h-1" />
-            <Button variant="destructive" className="w-full" onClick={() => job.abort()}>
-              {m.cancelWithProgress(Math.round(jobProgress * 100))}
-            </Button>
-          </div>
-        )}
+        <SidebarFooter progress={job ? jobProgress * 100 : null} onCancel={() => job?.abort()}>
+          <SaveManyButton
+            count={targets.size}
+            disabled={busy || targets.size === 0}
+            primaryLabel={() => extractLabel}
+            onSave={(method) => void extract(targets, method)}
+          />
+        </SidebarFooter>
       </aside>
 
       <div className="workspace">
@@ -304,7 +319,7 @@ export function ViewArchive({ opened, onFiles, onCreate }: ViewArchiveProps) {
                 root={root}
                 expanded={expanded}
                 onExpandedChange={setExpanded}
-                selected={selected}
+                selected={selection}
                 onSelectedChange={setSelected}
                 showCompression={info?.format === 'zip' || info?.format === 'gzip'}
                 onActivate={openInBani}

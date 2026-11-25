@@ -58,7 +58,7 @@ export function HubPage({ capabilities, isDragging, onFiles }: HubPageProps) {
               >
                 <span className="font-semibold">{t.kindLabel[kind]}</span>
                 {available ? (
-                  <span className="flex gap-2.5 text-xs">
+                  <span className="flex shrink-0 gap-2.5 text-xs whitespace-nowrap">
                     {canEdit && (
                       <a className="underline underline-offset-2" href={formatRoute({ name: 'edit', kind })}>
                         {t.hubEdit}

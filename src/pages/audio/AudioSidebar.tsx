@@ -1,15 +1,23 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Redo2Icon, Undo2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { Slider } from '@/components/ui/slider'
-import { Toggle } from '@/components/ui/toggle'
-import { solidOnClass } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 import { SidebarHead } from '../../components/BrandMark'
 import { SaveButton } from '../../components/SaveButton'
-import { SourceName } from '../../components/SidebarParts'
+import {
+  Chip,
+  EstimateBox,
+  EstimateRow,
+  Fact,
+  Facts,
+  HistoryButtons,
+  LinkButton,
+  SidebarFooter,
+  SmallButton,
+  SourceName,
+  SwitchField,
+} from '../../components/SidebarParts'
 import { Step, StepHint } from '../../components/Step'
 import { pickFiles } from '../../core/opened'
 import type { OpenedFile } from '../../core/opened'
@@ -62,7 +70,7 @@ interface AudioSidebarProps {
   onCancelRender: () => void
 }
 
-/** 入力 → 編集 → 出力 → 保存 を上から並べたパネル */
+/** 入力 → 編集 → 出力 → 出力の見込み を上から並べたパネル。保存は下端に固定する */
 export function AudioSidebar({
   file,
   info,
@@ -105,45 +113,28 @@ export function AudioSidebar({
             <StepHint>{t.inputEmpty}</StepHint>
           )}
           <div className="flex gap-1.5">
-            <Button
-              variant="outline"
-              size="xs"
-              className="h-7 px-2.5"
+            <SmallButton
               onClick={async () => {
                 const [picked] = await pickFiles({ accept: 'audio/*' })
                 if (picked) onFileSelect(picked)
               }}
             >
               {t.selectFile}
-            </Button>
+            </SmallButton>
           </div>
         </Step>
 
         {ready && (
           <>
-            <Step index={2} title={m.stepEdit}>
-              <EditControls info={info} recipe={recipe} onEdit={onEdit} />
-              <div className="flex items-center gap-1.5">
-                <Button variant="outline" size="xs" onClick={onUndo} disabled={!canUndo} title={`${m.undo} (⌘Z)`}>
-                  <Undo2Icon />
-                  {m.undo}
-                </Button>
-                <Button variant="outline" size="xs" onClick={onRedo} disabled={!canRedo} title={`${m.redo} (⇧⌘Z)`}>
-                  <Redo2Icon />
-                  {m.redo}
-                </Button>
-                <Button
-                  variant="link"
-                  size="xs"
-                  className="ml-auto h-auto px-0 text-[11px] font-normal text-muted-foreground underline hover:text-foreground"
-                  onClick={() => onEdit({ type: 'reset' })}
-                >
-                  {m.resetEdits}
-                </Button>
+            <Step index={2} title={t.stepEdit}>
+              <div className="flex flex-wrap items-center gap-1">
+                <HistoryButtons canUndo={canUndo} canRedo={canRedo} onUndo={onUndo} onRedo={onRedo} />
               </div>
+              <EditControls info={info} recipe={recipe} onEdit={onEdit} />
+              <LinkButton onClick={() => onEdit({ type: 'reset' })}>{t.resetEdits}</LinkButton>
             </Step>
 
-            <Step index={3} title={m.stepOutput}>
+            <Step index={3} title={t.stepOutput}>
               <OutputControls
                 info={info}
                 recipe={recipe}
@@ -153,31 +144,22 @@ export function AudioSidebar({
               />
             </Step>
 
-            <Step index={4} title={m.stepSave}>
-              <div className="flex flex-col gap-1.5 rounded-md bg-muted px-3 py-2.5">
-                <SummaryRow label={m.estimatedSize}>
+            <Step index={4} title={t.stepEstimate}>
+              <EstimateBox>
+                <EstimateRow label={t.estimatedSize}>
                   {formatBytes(estimateRenderSize(output, effectiveRecipe(recipe), info))}
-                </SummaryRow>
-                <SummaryRow label={m.outputLength}>{formatTimecode(trimmedLength(recipe))}</SummaryRow>
-              </div>
+                </EstimateRow>
+                <EstimateRow label={t.outputDuration}>{formatTimecode(trimmedLength(recipe))}</EstimateRow>
+              </EstimateBox>
               <StepHint>{m.previewNote}</StepHint>
             </Step>
           </>
         )}
       </div>
 
-      <div className="sidebar-footer">
-        {renderProgress !== null ? (
-          <>
-            <Progress value={renderProgress * 100} className="h-1" />
-            <Button variant="destructive" className="w-full" onClick={onCancelRender}>
-              {t.cancel} — {m.rendering(Math.round(renderProgress * 100))}
-            </Button>
-          </>
-        ) : (
-          file && <SaveButton save={save} disabled={!ready} />
-        )}
-      </div>
+      <SidebarFooter progress={renderProgress === null ? null : renderProgress * 100} onCancel={onCancelRender}>
+        <SaveButton save={save} disabled={!ready} />
+      </SidebarFooter>
     </aside>
   )
 }
@@ -228,16 +210,16 @@ function EditControls({
         />
         {recipe.normalize && <StepHint>{m.gainDisabledHint}</StepHint>}
       </div>
-      <SwitchRow
+      <SwitchField
         label={m.normalize}
         hint={m.normalizeHint}
-        pressed={recipe.normalize}
+        checked={recipe.normalize}
         onChange={(enabled) => onEdit({ type: 'setNormalize', enabled })}
       />
-      <SwitchRow
+      <SwitchField
         label={m.mono}
         hint={info.channels === 1 ? m.monoAlready : undefined}
-        pressed={recipe.mono}
+        checked={recipe.mono}
         disabled={info.channels === 1 && !recipe.mono}
         onChange={(enabled) => onEdit({ type: 'setMono', enabled })}
       />
@@ -387,93 +369,11 @@ function DraftSlider({
   )
 }
 
-function SwitchRow({
-  label,
-  hint,
-  pressed,
-  disabled = false,
-  onChange,
-}: {
-  label: string
-  hint?: string
-  pressed: boolean
-  disabled?: boolean
-  onChange: (pressed: boolean) => void
-}) {
-  const m = useLocalMessages(audioMessages)
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>{label}</span>
-        <Toggle
-          variant="outline"
-          size="sm"
-          className={cn('h-7 min-w-14 text-xs', solidOnClass)}
-          pressed={pressed}
-          disabled={disabled}
-          onPressedChange={onChange}
-          aria-label={label}
-        >
-          {pressed ? m.on : m.off}
-        </Toggle>
-      </div>
-      {hint && <StepHint>{hint}</StepHint>}
-    </div>
-  )
-}
-
 function ChoiceGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-xs text-muted-foreground">{label}</span>
       <div className="flex flex-wrap gap-1.5">{children}</div>
-    </div>
-  )
-}
-
-function Chip({
-  active,
-  onClick,
-  title,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  title?: string
-  children: ReactNode
-}) {
-  return (
-    <Button
-      variant={active ? 'default' : 'outline'}
-      size="xs"
-      className="gap-1 rounded-full px-2.5 text-[11px]"
-      aria-pressed={active}
-      title={title}
-      onClick={onClick}
-    >
-      {children}
-    </Button>
-  )
-}
-
-function Facts({ children }: { children: ReactNode }) {
-  return <dl className="flex flex-col gap-1 text-xs">{children}</dl>
-}
-
-function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="truncate text-right">{children}</dd>
-    </div>
-  )
-}
-
-function SummaryRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex justify-between text-xs text-muted-foreground">
-      <span>{label}</span>
-      <strong className="text-[13px] text-foreground">{children}</strong>
     </div>
   )
 }

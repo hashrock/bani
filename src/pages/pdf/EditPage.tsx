@@ -1,31 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ComponentProps, ReactNode } from 'react'
-import {
-  ArrowLeft,
-  ArrowRight,
-  FilePlus,
-  ImagePlus,
-  Redo2,
-  RotateCcw,
-  RotateCw,
-  Trash2,
-  Undo2,
-} from 'lucide-react'
+import type { ReactNode } from 'react'
+import { ArrowLeft, ArrowRight, FilePlus, ImagePlus, RotateCcw, RotateCw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { solidOnClass } from '@/lib/styles'
 import { cn } from '@/lib/utils'
+import { useReportUnsaved } from '../../app/leaveGuard'
+import { useLocalDrop } from '../../app/useLocalDrop'
+import type { DragItemKind } from '../../app/useLocalDrop'
 import { SidebarHead } from '../../components/BrandMark'
 import { FileUpload } from '../../components/FileUpload'
 import { SaveButton } from '../../components/SaveButton'
-import { SourceName } from '../../components/SidebarParts'
+import { SaveManyButton } from '../../components/SaveManyButton'
+import {
+  Fact,
+  Facts,
+  HistoryButtons,
+  IconButton,
+  SidebarFooter,
+  SmallButton,
+  SourceName,
+  ToolbarDivider,
+} from '../../components/SidebarParts'
 import { Step, StepHint } from '../../components/Step'
 import { pickFiles } from '../../core/opened'
+import type { OpenedFile } from '../../core/opened'
+import { canPickFolder, planSaveMany, saveFiles } from '../../core/save'
+import type { SaveManyMethod } from '../../core/save'
+import { useHotkey } from '../../core/useHotkey'
 import { usePersistentState } from '../../core/usePersistentState'
 import { useRecipeHistory } from '../../core/useRecipeHistory'
-import { useSave } from '../../core/useSave'
+import { savedFilesMessage, useSave } from '../../core/useSave'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import {
@@ -59,7 +65,6 @@ import {
   type Selection,
 } from './pageModel'
 import { PageGrid } from './PageGrid'
-import { saveFiles } from './saveFiles'
 import { ThumbnailStore } from './thumbnailStore'
 
 /** レシピの source が指す入力。0 番は開いたファイルで、結合で後ろに増えるだけ（位置は変わらない） */
@@ -80,8 +85,14 @@ const IMAGE_PAGE = { pageSize: 'a4', margin: 24, orientation: 'auto' } as const
 
 const errorCode = (error: unknown): PdfErrorCode => (isPdfError(error) ? error.code : 'invalid')
 
+const isPdfItem = (item: DragItemKind) => item.type === 'application/pdf'
+const isImageItem = (item: DragItemKind) => item.type.startsWith('image/') && item.type !== 'image/svg+xml'
+/** ページ一覧に落としたとき、足せるもの（PDF と画像）だけなら足す。ほかが混ざれば開き直しに任せる */
+const acceptsPages = (items: DragItemKind[]) =>
+  items.length > 0 && items.every((item) => isPdfItem(item) || isImageItem(item))
+
 /** PDF を開き、ページの並べ替え・回転・削除・抽出、結合、分割をして保存する画面 */
-export default function EditPage({ opened, isDragging, onFiles }: EditPageProps) {
+export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange }: EditPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(messages)
   const file = opened?.file ?? null
@@ -211,22 +222,36 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
     await withBusy('adding', () => appendFiles(picked.map(({ file }) => file)))
   }
 
+  /** 画像を A4 のページにして末尾に足す */
+  const appendImages = async (images: File[]) => {
+    try {
+      const rendered = await imagesToPdf(images, IMAGE_PAGE)
+      await appendFiles([new File([rendered.blob], rendered.filename, { type: 'application/pdf' })])
+    } catch (error) {
+      console.error('imagesToPdf failed:', error)
+      toast.error(isPdfError(error) ? m.pdfError[error.code] : m.imagesFailed)
+    }
+  }
+
   const addImages = async () => {
     const picked = await pickFiles({ multiple: true, accept: 'image/*' })
     if (picked.length === 0) return
-    await withBusy('adding', async () => {
-      try {
-        const rendered = await imagesToPdf(
-          picked.map(({ file }) => file),
-          IMAGE_PAGE
-        )
-        await appendFiles([new File([rendered.blob], rendered.filename, { type: 'application/pdf' })])
-      } catch (error) {
-        console.error('imagesToPdf failed:', error)
-        toast.error(isPdfError(error) ? m.pdfError[error.code] : m.imagesFailed)
-      }
-    })
+    await withBusy('adding', () => appendImages(picked.map(({ file }) => file)))
   }
+
+  // 開いている PDF のページ一覧に落とした PDF・画像は、開き直さずに末尾へ足す（PDF を追加・画像を追加と同じ）
+  const pageDrop = useLocalDrop({
+    enabled: status.kind === 'ready' && busy === null,
+    accepts: acceptsPages,
+    onDrop: (dropped: OpenedFile[]) =>
+      void withBusy('adding', async () => {
+        const files = dropped.map(({ file }) => file)
+        const pdfs = files.filter((item) => item.type === 'application/pdf')
+        const images = files.filter((item) => item.type !== 'application/pdf')
+        if (pdfs.length > 0) await appendFiles(pdfs)
+        if (images.length > 0) await appendImages(images)
+      }),
+  })
 
   const keep = () => {
     const parsed = parsePageRanges(keepText, pageCount)
@@ -250,7 +275,7 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
   const files = sources.map((source) => source.file)
   const usedSources = new Set(recipe.pages.map((page) => page.source))
 
-  const split = () =>
+  const split = (method: SaveManyMethod) =>
     withBusy('splitting', async () => {
       if (!splitRanges.ok || !file) return
       try {
@@ -258,12 +283,8 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
         const edited = await renderPdf(files, recipe)
         const merged = new File([edited.blob], file.name, { type: 'application/pdf' })
         const parts = await splitPdf(merged, splitRanges.ranges)
-        const saved = await saveFiles(parts)
-        toast(
-          saved.kind === 'folder'
-            ? m.splitSaved(saved.count, saved.folder)
-            : m.splitDownloaded(saved.count)
-        )
+        const saved = await saveFiles(parts, method, { zipName: `${file.name.replace(/\.pdf$/i, '')}-split` })
+        toast(savedFilesMessage(t, saved))
       } catch (error) {
         if (isAbortError(error)) return
         console.error('Split failed:', error)
@@ -284,8 +305,16 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
     canCopy: false,
     disabled: !ready || pageCount === 0 || busy !== null,
     render: () => renderPdf(files, recipe),
-    onSourceReplaced: (next) => onFiles([next]),
+    onSaved: history.markSaved,
+    onSourceReplaced: onReopen,
   })
+  useReportUnsaved(history.dirty, onDirtyChange)
+
+  // 一覧にフォーカスがなくても、⌘A で全ページを選び、Delete で選んだページを消す
+  // （一覧にフォーカスがあるときは一覧が自分で処理する）
+  useHotkey('mod+a', () => setSelection(selectAll(keys)), { enabled: ready && pageCount > 0 })
+  useHotkey('delete', () => remove(), { enabled: ready && selected.length > 0 })
+  useHotkey('escape', () => setSelection(emptySelection), { enabled: ready && selected.length > 0 })
 
   const pageInfo = useCallback(
     (source: number, page: number) => sources[source]?.info.pages[page],
@@ -306,7 +335,7 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
         <SidebarHead />
 
         <div className="sidebar-scroll">
-          <Step index={1} title={m.stepInput}>
+          <Step index={1} title={t.stepInput}>
             {file ? (
               <div className="flex flex-col gap-2">
                 <SourceName title={file.name}>{file.name}</SourceName>
@@ -360,7 +389,7 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
                     if (picked) onFiles([picked])
                   }}
                 >
-                  {m.selectFile}
+                  {t.selectFile}
                 </SmallButton>
               )}
             </div>
@@ -369,15 +398,15 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
 
           {ready && (
             <>
-              <Step index={2} title={m.stepEdit}>
-                <div className="flex flex-wrap gap-1.5">
-                  <IconButton label={t.undo} onClick={history.undo} disabled={!history.canUndo}>
-                    <Undo2 />
-                  </IconButton>
-                  <IconButton label={t.redo} onClick={history.redo} disabled={!history.canRedo}>
-                    <Redo2 />
-                  </IconButton>
-                  <span className="mx-0.5 w-px self-stretch bg-border" />
+              <Step index={2} title={t.stepEdit}>
+                <div className="flex flex-wrap gap-1">
+                  <HistoryButtons
+                    canUndo={history.canUndo}
+                    canRedo={history.canRedo}
+                    onUndo={history.undo}
+                    onRedo={history.redo}
+                  />
+                  <ToolbarDivider />
                   <IconButton label={m.rotateLeft} onClick={() => rotate(-90)} disabled={noSelection}>
                     <RotateCcw />
                   </IconButton>
@@ -424,7 +453,18 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
                 <StepHint>{m.keepHint}</StepHint>
               </Step>
 
-              <Step index={3} title={m.stepSplit}>
+              <Step index={3} title={t.stepEstimate}>
+                {pageCount === 0 ? (
+                  <p className="text-[11px] leading-normal text-destructive">{m.outputEmpty}</p>
+                ) : (
+                  <StepHint>
+                    {m.outputPages(pageCount)}
+                    {usedSources.size > 1 && <br />}
+                    {usedSources.size > 1 && m.outputMerged(usedSources.size)}
+                  </StepHint>
+                )}
+              </Step>
+              <Step index={4} title={m.stepSplit}>
                 <ToggleGroup
                   type="single"
                   variant="outline"
@@ -451,50 +491,45 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
                     value={splitText}
                     error={splitError}
                     onChange={setSplitText}
-                    onSubmit={() => void split()}
+                    onSubmit={() => {
+                      if (splitRanges.ok) void split(planSaveMany({ canPickFolder: canPickFolder(), count: splitRanges.ranges.length }).primary)
+                    }}
                   />
                 )}
-                <SmallButton
-                  onClick={() => void split()}
+                <SaveManyButton
+                  variant="outline"
+                  count={splitRanges.ok ? splitRanges.ranges.length : 0}
                   disabled={locked || !splitRanges.ok || pageCount === 0}
-                >
-                  {busy === 'splitting'
-                    ? m.splitRunning
-                    : m.splitRun(splitRanges.ok ? splitRanges.ranges.length : 0)}
-                </SmallButton>
+                  primaryLabel={() =>
+                    busy === 'splitting'
+                      ? m.splitRunning
+                      : m.splitRun(splitRanges.ok ? splitRanges.ranges.length : 0)
+                  }
+                  onSave={(method) => void split(method)}
+                />
                 <StepHint>{m.splitHint}</StepHint>
               </Step>
 
-              <Step index={4} title={m.stepOutput}>
-                {pageCount === 0 ? (
-                  <p className="text-[11px] leading-normal text-destructive">{m.outputEmpty}</p>
-                ) : (
-                  <StepHint>
-                    {m.outputPages(pageCount)}
-                    {usedSources.size > 1 && <br />}
-                    {usedSources.size > 1 && m.outputMerged(usedSources.size)}
-                  </StepHint>
-                )}
-              </Step>
             </>
           )}
         </div>
 
-        {file && (
-          <div className="sidebar-footer">
-            <SaveButton save={save} disabled={!ready || pageCount === 0 || busy !== null} />
-          </div>
-        )}
+        <SidebarFooter progress={null}>
+          <SaveButton save={save} disabled={!ready || pageCount === 0 || busy !== null} />
+        </SidebarFooter>
       </aside>
 
       <div className="workspace">
-        <div className={cn('stage', isDragging && 'drop-target-active')}>
+        <div
+          className={cn('stage', (pageDrop.over || (isDragging && !ready)) && 'drop-target-active')}
+          {...pageDrop.handlers}
+        >
           {!file ? (
             <FileUpload
               isDragging={isDragging}
               message={m.dropHere}
               hint={m.dropHint}
-              buttonLabel={m.selectFile}
+              buttonLabel={t.selectFile}
               accept="application/pdf"
               onFiles={onFiles}
             />
@@ -506,7 +541,7 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
             </Notice>
           ) : (
             <>
-              <div className="flex items-center gap-3 border-b bg-background py-2 pr-14 pl-4 text-xs">
+              <div className="flex items-center gap-3 border-b bg-background px-4 py-2 text-xs">
                 <span className="font-medium tabular-nums">{m.selection(selected.length, pageCount)}</span>
                 <span className="truncate text-muted-foreground">{m.selectionHint}</span>
                 <div className="ml-auto flex shrink-0 gap-1">
@@ -563,40 +598,6 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
         </div>
       </div>
     </div>
-  )
-}
-
-/** 名前と値を左右に振り分けた 1 行（動画の画面と同じ見た目） */
-function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="truncate text-right">{children}</dd>
-    </div>
-  )
-}
-
-function Facts({ children }: { children: ReactNode }) {
-  return <dl className="flex flex-col gap-1 text-xs">{children}</dl>
-}
-
-function SmallButton({
-  variant = 'outline',
-  className,
-  ...props
-}: ComponentProps<typeof Button>) {
-  return <Button variant={variant} size="xs" className={cn('h-7 px-2.5', className)} {...props} />
-}
-
-function IconButton({
-  label,
-  children,
-  ...props
-}: { label: string } & Omit<ComponentProps<typeof Button>, 'aria-label'>) {
-  return (
-    <Button variant="outline" size="icon-sm" className="size-7" aria-label={label} title={label} {...props}>
-      {children}
-    </Button>
   )
 }
 

@@ -1,5 +1,5 @@
 import type { ArchiveTreeNode } from '../../media/archive'
-import { basename, dirname, joinPath, numberedName, pathKey } from '../../media/archive/names'
+import { basename, dirname, joinPath } from '../../media/archive/names'
 
 /**
  * 一覧（フォルダの木）の上での選択・開閉・移動の計算。画面から切り離した純粋関数にして、
@@ -199,21 +199,6 @@ export function planFolderRename(folder: ArchiveTreeNode, name: string): MovePla
 }
 
 /**
- * 1 つずつダウンロードするときの名前。ダウンロードではフォルダを作れないので名前だけにし、
- * 重なったものには番号を振る（ブラウザに任せると黙って上書きや改名をされる）。
- */
-export function downloadNames(paths: readonly string[]): string[] {
-  const used = new Set<string>()
-  return paths.map((path) => {
-    const name = basename(path)
-    let candidate = name
-    for (let n = 2; used.has(pathKey(candidate)); n++) candidate = numberedName(name, n)
-    used.add(pathKey(candidate))
-    return candidate
-  })
-}
-
-/**
  * フォルダへ展開するときの置き方。中身をばらまかないよう、選んだものが 1 つのフォルダに
  * 収まっていなければ圧縮ファイルの名前のフォルダを作ってその中へ入れる（macOS の展開と同じ）。
  * ファイル 1 つだけならそのまま置く。
@@ -252,4 +237,15 @@ export function archiveBaseName(filename: string): string {
 export function compressionRatio(size: number, compressedSize: number | null): number | null {
   if (compressedSize === null || size <= 0) return null
   return compressedSize / size
+}
+
+/**
+ * macOS が圧縮のときに足す付随ファイルか（__MACOSX/ の下、._名前 のリソースフォーク、.DS_Store）。
+ * 中身として役に立たず、ほかの OS で展開するとゴミになるので、既定では一覧・展開から外す
+ */
+export function isMacJunk(path: string): boolean {
+  const segments = path.split('/').filter((segment) => segment !== '')
+  if (segments.includes('__MACOSX')) return true
+  const name = segments[segments.length - 1] ?? ''
+  return name.startsWith('._') || name === '.DS_Store'
 }

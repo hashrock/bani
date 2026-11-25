@@ -1,5 +1,5 @@
 import type { AudioCodec } from 'mediabunny'
-import { AUDIO_FORMATS, changeAudioFormat } from '../../media/audio/output'
+import { AUDIO_FORMATS, AUDIO_FORMAT_LIST, changeAudioFormat, createAudioOutput } from '../../media/audio/output'
 import { dbToGain, fadeEnvelope, normalizeGain } from '../../media/audio/dsp'
 import { trimmedLength } from '../../media/audio/recipe'
 import type { AudioFormat, AudioOutput, AudioRecipe } from '../../media/audio/types'
@@ -46,6 +46,18 @@ export function isSameAudioFormat(
   const extension = extensionOf(source.name)
   if (extension !== '') return container.extensions.includes(extension)
   return container.mimes.includes(source.type.toLowerCase())
+}
+
+/**
+ * 出力設定の既定。元と同じ形式を書き出せるならそれにする（WAV・FLAC を開いて ⌘S なら劣化なしの上書き）。
+ * 書き出せない・わからないときは MP3。書き出せるかの確認がまだ（supported が null）なら元の形式で仮に置く
+ */
+export function defaultAudioOutput(
+  source: { name: string; type: string; codec: AudioCodec | null },
+  supported: Readonly<Record<AudioFormat, boolean>> | null
+): AudioOutput {
+  const same = AUDIO_FORMAT_LIST.find((format) => isSameAudioFormat(source, format))
+  return createAudioOutput(same && (supported === null || supported[same]) ? same : 'mp3')
 }
 
 /** ビットレートの候補（bps）。よく使われる値から、形式が許す範囲のものだけを出す */

@@ -1,24 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 import { detectKindAsync } from '../../app/intake'
 import { BatchStatus } from '../../components/BatchStatus'
 import { SidebarHead } from '../../components/BrandMark'
 import { FileUpload } from '../../components/FileUpload'
 import { OutputSteps } from '../../components/OutputSteps'
-import { ResetSettingsButton, SourceName } from '../../components/SidebarParts'
+import { SaveManyButton } from '../../components/SaveManyButton'
+import { ResetSettingsButton, SidebarFooter, SmallButton, SourceName } from '../../components/SidebarParts'
 import { Step, StepHint } from '../../components/Step'
+import { canPickFolder, planSaveMany } from '../../core/save'
 import { pickFiles } from '../../core/opened'
 import type { OpenedFile } from '../../core/opened'
+import { useHotkey } from '../../core/useHotkey'
 import { usePersistentState } from '../../core/usePersistentState'
-import { canPickFolder, useBatchConversion } from '../../hooks/useBatchConversion'
-import type { SaveTarget } from '../../hooks/useBatchConversion'
+import { useBatchConversion } from '../../hooks/useBatchConversion'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import type { BatchInput } from '../../state/batchConversion'
-import type { ConversionSettings } from '../../types'
 import { CONVERT_ACCEPT, CONVERT_KINDS, isConvertKind } from './kinds'
 import type { ConvertKind } from './kinds'
 import { convertMessages } from './messages'
@@ -27,17 +27,12 @@ import type { ConvertSettings } from './outputs'
 import { AudioSteps, ImageSteps, TextSteps } from './SettingsSteps'
 
 interface ConvertPageProps {
-  /** 画面を開いたときに一覧へ入れるファイル。App が選び直すと画面ごと作り直す */
-  files: File[]
   /**
-   * 以前は動画の出力設定を App が持っていた名残。いまは種類ごとに画面の中で持つので使わない
-   * （App.tsx から外したら、ここも消す）
+   * App が受け取ったファイル（ドロップ・貼り付け・入口での選択）。id が変わるたびに一覧の末尾へ足す。
+   * この画面にいるあいだに落としたものも、一覧を作り直さずに足す
    */
-  settings?: ConversionSettings
-  onSettingsChange?: (settings: ConversionSettings) => void
+  incoming: { id: number; files: OpenedFile[] } | null
   isDragging: boolean
-  /** 種類と数による振り分け（planIntake）を通す入口。この画面では使わず、追加は画面の中で受ける */
-  onFiles?: (files: OpenedFile[]) => void
 }
 
 /** 種類ごとに手順がいくつあるか。サイドバーの手順番号を通しで振るのに使う */
@@ -45,9 +40,9 @@ const STEP_COUNT: Record<ConvertKind, number> = { video: 3, audio: 2, image: 3, 
 
 /**
  * 種類の混ざった複数のファイルを、種類ごとの出力設定でまとめて書き出す画面。
- * 編集はせず、常に全体を変換する。保存はフォルダへ書き込むか、1 つの ZIP にまとめる。
+ * 編集はせず、常に全体を変換する。保存はフォルダへ書き込むか、1 つの ZIP にまとめるか、1 つずつダウンロード。
  */
-export function ConvertPage({ files, isDragging }: ConvertPageProps) {
+export function ConvertPage({ incoming, isDragging }: ConvertPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(convertMessages)
 
@@ -56,12 +51,6 @@ export function ConvertPage({ files, isDragging }: ConvertPageProps) {
   const [audio, setAudio] = usePersistentState('convert.audio', DEFAULT_CONVERT_SETTINGS.audio)
   const [image, setImage] = usePersistentState('convert.image', DEFAULT_CONVERT_SETTINGS.image)
   const [text, setText] = usePersistentState('convert.text', DEFAULT_CONVERT_SETTINGS.text)
-  const [savedTarget, setSaveTarget] = usePersistentState<SaveTarget>('convert.saveTarget', () =>
-    canPickFolder() ? 'folder' : 'zip'
-  )
-  const folderAvailable = canPickFolder()
-  // フォルダを選べないブラウザでは ZIP しかない
-  const saveTarget: SaveTarget = folderAvailable ? savedTarget : 'zip'
 
   const settings = useMemo<ConvertSettings>(
     () => ({ video, audio, image, text }),
@@ -86,15 +75,14 @@ export function ConvertPage({ files, isDragging }: ConvertPageProps) {
     [add, t]
   )
 
-  // App から渡された最初のファイルは 1 回だけ入れる。App は描き直すたびに配列を作り直し、
-  // 言語を切り替えると addFiles も作り直されるので、そのたびに入れ直すと外したファイルが戻ってしまう
-  const [initialFiles] = useState(files)
-  const initialAdded = useRef(false)
+  // 届いたファイルは id ごとに 1 回だけ入れる。言語を切り替えると addFiles も作り直されるので、
+  // そのたびに入れ直すと外したファイルが戻ってしまう
+  const takenRef = useRef<number | null>(null)
   useEffect(() => {
-    if (initialAdded.current) return
-    initialAdded.current = true
-    void addFiles(initialFiles)
-  }, [addFiles, initialFiles])
+    if (!incoming || takenRef.current === incoming.id) return
+    takenRef.current = incoming.id
+    void addFiles(incoming.files.map(({ file }) => file))
+  }, [incoming, addFiles])
 
   const pickMore = async () => {
     const picked = await pickFiles({ multiple: true, accept: CONVERT_ACCEPT })
@@ -112,7 +100,6 @@ export function ConvertPage({ files, isDragging }: ConvertPageProps) {
     kind,
     startIndex: 2 + presentKinds.slice(0, i).reduce((sum, k) => sum + STEP_COUNT[k], 0),
   }))
-  const saveIndex = 2 + presentKinds.reduce((sum, k) => sum + STEP_COUNT[k], 0)
 
   const resetAll = () => {
     setVideo(DEFAULT_CONVERT_SETTINGS.video)
@@ -120,6 +107,15 @@ export function ConvertPage({ files, isDragging }: ConvertPageProps) {
     setImage(DEFAULT_CONVERT_SETTINGS.image)
     setText(DEFAULT_CONVERT_SETTINGS.text)
   }
+
+  // ⌘S は主の保存方法で変換して保存する（ほかの画面の保存と同じキー）
+  useHotkey(
+    'mod+s',
+    () => {
+      if (count > 0 && !batch.running) void batch.run(planSaveMany({ canPickFolder: canPickFolder(), count }).primary)
+    },
+    { inEditable: true }
+  )
 
   return (
     <div className="app">
@@ -131,28 +127,21 @@ export function ConvertPage({ files, isDragging }: ConvertPageProps) {
             {count > 0 ? (
               <SourceName>{m.queued(count)}</SourceName>
             ) : (
-              <StepHint>{t.batchEmpty}</StepHint>
+              <StepHint>{t.inputEmpty}</StepHint>
             )}
             <div className="flex gap-1.5">
-              <Button
-                variant="outline"
-                size="xs"
-                className="h-7 px-2.5"
-                onClick={pickMore}
-                disabled={batch.running}
-              >
-                {count > 0 ? m.addFiles : t.selectFiles}
-              </Button>
+              <SmallButton onClick={pickMore} disabled={batch.running}>
+                {count > 0 ? m.addFiles : t.selectFile}
+              </SmallButton>
               {count > 0 && (
-                <Button
+                <SmallButton
                   variant="ghost"
-                  size="xs"
-                  className="h-7 px-2.5 text-muted-foreground"
+                  className="text-muted-foreground"
                   onClick={batch.clear}
                   disabled={batch.running}
                 >
                   {m.clearAll}
-                </Button>
+                </SmallButton>
               )}
             </div>
           </Step>
@@ -182,55 +171,22 @@ export function ConvertPage({ files, isDragging }: ConvertPageProps) {
             )
           })}
 
-          {count > 0 && (
-            <Step index={saveIndex} title={m.stepSave}>
-              <div className="flex gap-1.5" role="radiogroup" aria-label={m.stepSave}>
-                <TargetButton
-                  active={saveTarget === 'folder'}
-                  disabled={!folderAvailable || batch.running}
-                  onClick={() => setSaveTarget('folder')}
-                >
-                  {m.saveFolder}
-                </TargetButton>
-                <TargetButton
-                  active={saveTarget === 'zip'}
-                  disabled={batch.running}
-                  onClick={() => setSaveTarget('zip')}
-                >
-                  {m.saveZip}
-                </TargetButton>
-              </div>
-              <StepHint>
-                {!folderAvailable
-                  ? m.folderUnavailable
-                  : saveTarget === 'folder'
-                    ? m.saveFolderHint
-                    : m.saveZipHint}
-              </StepHint>
-            </Step>
-          )}
-
           {count > 0 && <ResetSettingsButton onClick={resetAll} />}
         </div>
 
-        <div className="sidebar-footer flex flex-col gap-2">
-          {batch.running ? (
-            <Button variant="destructive" className="w-full" onClick={batch.cancel}>
-              {batch.zipping ? m.zipping : t.cancel}
-            </Button>
-          ) : (
-            <>
-              {batch.archive && (
-                <Button variant="outline" className="w-full" onClick={batch.saveArchive}>
-                  {m.saveZipAgain}
-                </Button>
-              )}
-              <Button className="w-full" onClick={() => batch.run(saveTarget)} disabled={count === 0}>
-                {m.convert(count)}
-              </Button>
-            </>
+        <SidebarFooter progress={batch.progress} onCancel={batch.cancel}>
+          {batch.archive && (
+            <SmallButton className="h-9 w-full" onClick={() => void batch.saveArchive()}>
+              {m.saveZipAgain}
+            </SmallButton>
           )}
-        </div>
+          <SaveManyButton
+            count={count}
+            disabled={count === 0}
+            primaryLabel={() => m.convert(count)}
+            onSave={(method) => void batch.run(method)}
+          />
+        </SidebarFooter>
       </aside>
 
       <div className="workspace">
@@ -242,14 +198,6 @@ export function ConvertPage({ files, isDragging }: ConvertPageProps) {
                 isDragging && 'drop-target-active'
               )}
             >
-              {batch.error && (
-                <div
-                  role="alert"
-                  className="mb-3 rounded-md border border-destructive px-3 py-2.5 text-[13px] text-destructive"
-                >
-                  {batch.error}
-                </div>
-              )}
               <BatchStatus entries={batch.entries} onRemove={batch.running ? undefined : batch.remove} />
             </div>
           ) : (
@@ -257,7 +205,7 @@ export function ConvertPage({ files, isDragging }: ConvertPageProps) {
               isDragging={isDragging}
               message={m.dropHere}
               hint={m.dropHint}
-              buttonLabel={t.selectFiles}
+              buttonLabel={t.selectFile}
               accept={CONVERT_ACCEPT}
               multiple
               onFiles={(picked) => void addFiles(picked.map(({ file }) => file))}
@@ -275,32 +223,5 @@ function GroupHead({ children }: { children: ReactNode }) {
     <h2 className="border-b border-secondary bg-muted/50 px-4 py-2 text-xs font-semibold">
       {children}
     </h2>
-  )
-}
-
-/** 保存先の選択。フォルダを選べないブラウザでは、選べないまま理由を下に添える */
-function TargetButton({
-  active,
-  disabled,
-  onClick,
-  children,
-}: {
-  active: boolean
-  disabled: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
-  return (
-    <Button
-      variant={active ? 'default' : 'outline'}
-      size="sm"
-      className="flex-1 text-xs"
-      role="radio"
-      aria-checked={active}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </Button>
   )
 }

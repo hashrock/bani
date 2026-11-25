@@ -13,6 +13,15 @@ export const MAX_VIDEO_BITRATE = 5_000_000
 
 export const DEFAULT_VIDEO_OUTPUT: VideoOutput = { format: 'mp4', quality: 80 }
 
+/**
+ * 出力設定の既定。元と同じ入れ物（MP4 / WebM）にする。ほかの入れ物（MOV・MKV など）は MP4。
+ * 動画は常に作り直すので、同じ形式でも別名で保存が主になる
+ */
+export function defaultVideoOutput(source: { name: string; type: string }): VideoOutput {
+  const webm = source.type.toLowerCase() === 'video/webm' || /\.webm$/i.test(source.name)
+  return { ...DEFAULT_VIDEO_OUTPUT, format: webm ? 'webm' : 'mp4' }
+}
+
 export const VIDEO_MIME_TYPES: Readonly<Record<VideoFormat, string>> = {
   mp4: 'video/mp4',
   webm: 'video/webm',

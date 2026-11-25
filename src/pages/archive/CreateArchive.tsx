@@ -1,6 +1,5 @@
-import { Pencil, Redo2, Trash2, Undo2 } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import type { DragEvent } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,14 +7,28 @@ import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { solidOnClass } from '@/lib/styles'
 import { cn } from '@/lib/utils'
+import { useReportUnsaved } from '../../app/leaveGuard'
+import { useLocalDrop } from '../../app/useLocalDrop'
 import { SidebarHead } from '../../components/BrandMark'
 import { SaveButton } from '../../components/SaveButton'
+import {
+  Fact,
+  Facts,
+  HistoryButtons,
+  IconButton,
+  LinkButton,
+  SidebarFooter,
+  SmallButton,
+  ToolbarDivider,
+} from '../../components/SidebarParts'
 import { Step, StepHint } from '../../components/Step'
 import { pickFiles } from '../../core/opened'
 import type { OpenedFile } from '../../core/opened'
+import { useHotkey } from '../../core/useHotkey'
 import { usePersistentState } from '../../core/usePersistentState'
 import { useRecipeHistory } from '../../core/useRecipeHistory'
 import { useSave } from '../../core/useSave'
+import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import {
   applyArchiveEdit,
@@ -30,9 +43,8 @@ import {
 } from '../../media/archive'
 import { formatBytes } from '../../utils/format'
 import { EntryTree } from './EntryTree'
-import { ARCHIVE_ACCEPT, collectDroppedTree, pickFolder, type AddedFile } from './io'
+import { ARCHIVE_ACCEPT, type AddedFile } from './io'
 import { messages } from './messages'
-import { Facts, Fact } from './parts'
 import { foldersUnder, planFolderRename, planMove, pruneSelection, topSelected, type MovePlan } from './treeModel'
 
 type OutputFormat = 'zip' | 'tar.gz'
@@ -40,7 +52,9 @@ type OutputFormat = 'zip' | 'tar.gz'
 let idCounter = 0
 const nextId = () => `item-${++idCounter}`
 
-const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
+/** ドロップ・選択で受け取ったものを、圧縮ファイルの中のパスにする（フォルダごとならその構造のまま） */
+const toAdded = (files: readonly OpenedFile[]): AddedFile[] =>
+  files.map(({ file, path }) => ({ file, path: path ?? file.name }))
 
 /** 移動の計画を、フォルダごとの move 編集にして順に当てる（履歴には 1 回分として積む） */
 function applyPlan(recipe: ArchiveRecipe, plan: MovePlan, idOf: ReadonlyMap<string, string>): ArchiveRecipe {
@@ -56,10 +70,12 @@ interface CreateArchiveProps {
   /** 開いた圧縮ファイルの中身から作り始めるとき */
   seed: { name: string; files: AddedFile[] } | null
   onFiles: (files: OpenedFile[]) => void
+  onDirtyChange: (dirty: boolean) => void
 }
 
 /** 新しい圧縮ファイルを組み立てる。中身の指定はレシピ（ArchiveRecipe）で持ち、⌘Z で戻せる */
-export function CreateArchive({ seed, onFiles }: CreateArchiveProps) {
+export function CreateArchive({ seed, onFiles, onDirtyChange }: CreateArchiveProps) {
+  const { t } = useI18n()
   const m = useLocalMessages(messages)
   // 元ファイルはレシピに入れず id で引く。取り消しで戻ってきたときのために消さずに持っておく
   const sources = useRef(new Map<string, File>())
@@ -77,8 +93,6 @@ export function CreateArchive({ seed, onFiles }: CreateArchiveProps) {
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const [moveTarget, setMoveTarget] = useState('')
-  const [dropOver, setDropOver] = useState(false)
-  const dropDepth = useRef(0)
 
   function toItems(files: readonly AddedFile[]) {
     return files.map(({ file, path }) => {
@@ -170,39 +184,18 @@ export function CreateArchive({ seed, onFiles }: CreateArchiveProps) {
     canCopy: false,
     disabled: recipe.items.length === 0,
     render: () => (format === 'zip' ? createZip : createTarGz)(recipe, sources.current),
+    onSaved: history.markSaved,
   })
+  useReportUnsaved(history.dirty, onDirtyChange)
 
-  // ここで受けたドロップはアプリ全体の取り込み（別の画面で開く）へ流さず、中身に足す。
-  // 外側の枠はドラッグの出入りを数えているので、入退出も外へ流さずこちらで数える
-  const dropHandlers = {
-    onDragEnter: (e: DragEvent) => {
-      if (!hasFiles(e)) return
-      e.preventDefault()
-      e.stopPropagation()
-      dropDepth.current += 1
-      setDropOver(true)
-    },
-    onDragOver: (e: DragEvent) => {
-      if (!hasFiles(e)) return
-      e.preventDefault()
-      e.stopPropagation()
-      e.dataTransfer.dropEffect = 'copy'
-    },
-    onDragLeave: (e: DragEvent) => {
-      if (!hasFiles(e)) return
-      e.stopPropagation()
-      dropDepth.current = Math.max(0, dropDepth.current - 1)
-      if (dropDepth.current === 0) setDropOver(false)
-    },
-    onDrop: (e: DragEvent) => {
-      if (!hasFiles(e)) return
-      e.preventDefault()
-      e.stopPropagation()
-      dropDepth.current = 0
-      setDropOver(false)
-      void collectDroppedTree(e.dataTransfer).then(addFiles)
-    },
-  }
+  // 一覧にフォーカスがなくても、選んだものを Delete で消し、⌘A ですべて選ぶ
+  useHotkey('delete', removeSelected, { enabled: selected.size > 0 })
+  useHotkey('mod+a', () => setSelected(new Set(idOf.keys())), { enabled: recipe.items.length > 0 })
+  useHotkey('escape', () => setSelected(new Set()), { enabled: selected.size > 0 })
+
+  // 作成中の画面に落としたものは、開き直さずに中身へ足す（フォルダは構造ごと）
+  const drop = useLocalDrop({ onDrop: (files) => addFiles(toAdded(files)) })
+  const dropOver = drop.over
 
   const totalSize = recipe.items.reduce((sum, item) => sum + item.size, 0)
   const level = levelDraft ?? recipe.level
@@ -213,20 +206,12 @@ export function CreateArchive({ seed, onFiles }: CreateArchiveProps) {
 
   const addButtons = (
     <div className="flex flex-wrap gap-1.5">
-      <Button
-        variant="outline"
-        size="xs"
-        className="h-7 px-2.5"
-        onClick={async () => {
-          const picked = await pickFiles({ multiple: true })
-          addFiles(picked.map(({ file }) => ({ file, path: file.name })))
-        }}
-      >
+      <SmallButton onClick={async () => addFiles(toAdded(await pickFiles({ multiple: true })))}>
         {m.addFiles}
-      </Button>
-      <Button variant="outline" size="xs" className="h-7 px-2.5" onClick={async () => addFiles(await pickFolder())}>
+      </SmallButton>
+      <SmallButton onClick={async () => addFiles(toAdded(await pickFiles({ directory: true })))}>
         {m.addFolder}
-      </Button>
+      </SmallButton>
     </div>
   )
 
@@ -235,7 +220,7 @@ export function CreateArchive({ seed, onFiles }: CreateArchiveProps) {
       <aside className="sidebar">
         <SidebarHead />
         <div className="sidebar-scroll">
-          <Step index={1} title={m.stepNew}>
+          <Step index={1} title={t.stepInput}>
             <label className="flex flex-col gap-1 text-xs text-muted-foreground">
               {m.nameLabel}
               <div className="flex items-center gap-1.5">
@@ -263,29 +248,31 @@ export function CreateArchive({ seed, onFiles }: CreateArchiveProps) {
               <Fact label={m.factTotal}>{formatBytes(totalSize)}</Fact>
             </Facts>
             {addButtons}
-            <Button
-              variant="link"
-              size="xs"
-              className="h-auto self-start px-0 text-[11px] font-normal text-muted-foreground underline hover:text-foreground"
+            <LinkButton
               onClick={async () => {
                 const [picked] = await pickFiles({ accept: ARCHIVE_ACCEPT })
                 if (picked) onFiles([picked])
               }}
             >
               {m.openArchive}
-            </Button>
+            </LinkButton>
           </Step>
 
-          <Step index={2} title={m.stepContents}>
-            <div className="flex gap-1.5">
-              <Button variant="outline" size="xs" className="h-7" onClick={history.undo} disabled={!history.canUndo} title={`${m.undo} (⌘Z)`}>
-                <Undo2 />
-                {m.undo}
-              </Button>
-              <Button variant="outline" size="xs" className="h-7" onClick={history.redo} disabled={!history.canRedo} title={`${m.redo} (⇧⌘Z)`}>
-                <Redo2 />
-                {m.redo}
-              </Button>
+          <Step index={2} title={t.stepEdit}>
+            <div className="flex flex-wrap gap-1">
+              <HistoryButtons
+                canUndo={history.canUndo}
+                canRedo={history.canRedo}
+                onUndo={history.undo}
+                onRedo={history.redo}
+              />
+              <ToolbarDivider />
+              <IconButton label={`${m.rename} (F2)`} disabled={!singleTop} onClick={() => singleTop && startRename(singleTop)}>
+                <Pencil />
+              </IconButton>
+              <IconButton label={m.remove} disabled={selected.size === 0} onClick={removeSelected}>
+                <Trash2 />
+              </IconButton>
             </div>
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">{m.moveTarget}</span>
@@ -310,25 +297,9 @@ export function CreateArchive({ seed, onFiles }: CreateArchiveProps) {
                 </Button>
               </div>
             </div>
-            <div className="flex gap-1.5">
-              <Button
-                variant="outline"
-                size="xs"
-                className="h-7"
-                disabled={!singleTop}
-                onClick={() => singleTop && startRename(singleTop)}
-              >
-                <Pencil />
-                {m.rename}
-              </Button>
-              <Button variant="outline" size="xs" className="h-7" disabled={selected.size === 0} onClick={removeSelected}>
-                <Trash2 />
-                {m.remove}
-              </Button>
-            </div>
           </Step>
 
-          <Step index={3} title={m.stepOutput}>
+          <Step index={3} title={t.stepOutput}>
             <ToggleGroup
               type="single"
               variant="outline"
@@ -369,14 +340,14 @@ export function CreateArchive({ seed, onFiles }: CreateArchiveProps) {
           </Step>
         </div>
 
-        <div className="sidebar-footer">
+        <SidebarFooter progress={null}>
           {recipe.items.length === 0 && <StepHint>{m.saveEmpty}</StepHint>}
           <SaveButton save={save} disabled={recipe.items.length === 0} />
-        </div>
+        </SidebarFooter>
       </aside>
 
       <div className="workspace">
-        <div className={cn('stage', dropOver && 'drop-target-active')} {...dropHandlers}>
+        <div className={cn('stage', dropOver && 'drop-target-active')} {...drop.handlers}>
           {recipe.items.length === 0 ? (
             <div className={cn('preview-area', dropOver && 'drop-target-active')}>
               <div className="flex flex-col items-center gap-4">

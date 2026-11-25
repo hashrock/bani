@@ -3,6 +3,7 @@ import fc from 'fast-check'
 import {
   applyResolutionPreset,
   computeFrameDrawPlan,
+  defaultVideoOutput,
   isResolutionPresetActive,
   resolutionPresetsFor,
   videoBitrate,
@@ -137,5 +138,14 @@ describe('videoBitrate / videoFilename', () => {
   test('拡張子を形式のものに付け替える', () => {
     expect(videoFilename('clip.mov', 'mp4')).toBe('clip.mp4')
     expect(videoFilename('clip.mp4', 'gif')).toBe('clip.gif')
+  })
+})
+
+describe('defaultVideoOutput', () => {
+  test('元と同じ入れ物にし、ほかは MP4 にする', () => {
+    expect(defaultVideoOutput({ name: 'a.webm', type: '' }).format).toBe('webm')
+    expect(defaultVideoOutput({ name: 'a', type: 'video/webm' }).format).toBe('webm')
+    expect(defaultVideoOutput({ name: 'a.mp4', type: 'video/mp4' }).format).toBe('mp4')
+    expect(defaultVideoOutput({ name: 'a.mov', type: 'video/quicktime' }).format).toBe('mp4')
   })
 })

@@ -1,12 +1,10 @@
-import { Copy, Redo2, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { useReportUnsaved } from '../../app/leaveGuard'
 import { FileUpload } from '../../components/FileUpload'
-import { copyBlobToClipboard } from '../../core/save'
-import { isEditableTarget } from '../../core/useHotkey'
-import { usePersistentState } from '../../core/usePersistentState'
+import type { SaveMethod } from '../../core/save'
+import { isEditableTarget, useHotkey } from '../../core/useHotkey'
+import { useRememberedChoice } from '../../core/usePersistentState'
 import { useRecipeHistory } from '../../core/useRecipeHistory'
 import { useSave } from '../../core/useSave'
 import { useI18n } from '../../i18n/context'
@@ -17,11 +15,11 @@ import {
   applyImageEdit,
   createImageOutput,
   createImageRecipe,
+  defaultImageFormat,
   detectEncodableFormats,
   renderImage,
 } from '../../media/image'
 import type { ImageEdit, ImageFormat, ImageOutput, ImageRecipe } from '../../media/image'
-import { isAbortError } from '../../utils/abort'
 import { formatBytes } from '../../utils/format'
 import type { EditPageProps } from '../types'
 import { fitAspect, sourceRectToView, viewRectToSource, viewSize } from './crop'
@@ -38,7 +36,7 @@ const BASELINE_FORMATS: ImageFormat[] = ['png', 'jpeg', 'webp']
 const IDENTITY = createImageRecipe()
 
 /** 画像 1 枚を開き、回転・切り抜き・リサイズ・余白を決めて書き出す画面 */
-export default function EditPage({ opened, isDragging, onFiles }: EditPageProps) {
+export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange }: EditPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(imageMessages)
   const file = opened?.file ?? null
@@ -47,8 +45,6 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
 
   const history = useRecipeHistory<ImageRecipe>(createImageRecipe)
   const { recipe, update } = history
-  // 出力設定は別の画像を開いても残す（同じ設定で続けて書き出すことが多いので）
-  const [savedOutput, setOutput] = usePersistentState<ImageOutput>('image.output', () => createImageOutput())
 
   const [formats, setFormats] = useState<ImageFormat[]>(BASELINE_FORMATS)
   useEffect(() => {
@@ -60,6 +56,13 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
       cancelled = true
     }
   }, [])
+  // 出力設定は、選ぶまでは元と同じ形式（書き出せるなら。PNG を開いて ⌘S なら劣化なしの上書き）。
+  // 選んだら別の画像を開いても残す（同じ設定で続けて書き出すことが多いので）
+  const derivedOutput = useMemo(
+    () => createImageOutput(info ? defaultImageFormat(info.mime, formats) : 'png'),
+    [info, formats]
+  )
+  const [savedOutput, setOutput] = useRememberedChoice<ImageOutput>('image.output', derivedOutput)
   // 前に選んだ形式がこのブラウザで書き出せなければ PNG に倒す（PNG はどこでも書き出せる）
   const output = useMemo(
     () => (formats.includes(savedOutput.format) ? savedOutput : { ...savedOutput, format: 'png' as const }),
@@ -81,41 +84,35 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
 
   const estimate = useImageEstimate(source ? file : null, recipe, output)
 
-  // 書き出しの結果は見込みで作ったものを使い回す。設定が変わった直後なら作り直す
-  const render = useCallback(async () => {
-    if (!file) throw new DOMException('No file', 'AbortError')
-    return estimate.rendered ?? (await renderImage(file, recipe, output))
-  }, [file, estimate.rendered, recipe, output])
+  // 書き出しの結果は見込みで作ったものを使い回す。設定が変わった直後なら作り直す。
+  // クリップボードは PNG しか受け付けないので、コピーでは出力形式によらず PNG にする
+  const render = useCallback(
+    async (method: SaveMethod) => {
+      if (!file) throw new DOMException('No file', 'AbortError')
+      if (method === 'copyToClipboard' && output.format !== 'png') {
+        return renderImage(file, recipe, { format: 'png', quality: 100, targetBytes: null })
+      }
+      return estimate.rendered ?? (await renderImage(file, recipe, output))
+    },
+    [file, estimate.rendered, recipe, output]
+  )
 
   const save = useSave({
     opened,
     lossless: output.format === 'png',
     sameFormat: !!info && IMAGE_FORMATS[output.format].mime === info.mime,
-    // クリップボードは PNG しか受け付けない。ほかの形式は「PNG でコピー」を別に出す
-    canCopy: output.format === 'png',
+    // コピーは保存と同じドロップダウンに置く。PNG 以外を書き出すときは「PNG でコピー」と言い換える
+    canCopy: true,
+    copyLabel: output.format === 'png' ? undefined : m.copyAsPng,
     disabled: !source,
     render,
-    onSourceReplaced: (next) => onFiles([next]),
+    onSaved: history.markSaved,
+    onSourceReplaced: onReopen,
   })
+  useReportUnsaved(history.dirty, onDirtyChange)
 
-  // 出力が PNG 以外でも、貼り付け先で使えるよう PNG にしてコピーできるようにする
-  const copyAsPng = useCallback(async () => {
-    if (!file) return
-    try {
-      const rendered =
-        output.format === 'png' && estimate.rendered
-          ? estimate.rendered
-          : await renderImage(file, recipe, { format: 'png', quality: 100, targetBytes: null })
-      await copyBlobToClipboard(rendered.blob)
-      toast(t.copiedToClipboard)
-    } catch (err) {
-      if (isAbortError(err)) return
-      console.error('Copy failed:', err)
-      toast.error(t.saveFailed(err instanceof Error ? err.message : String(err)))
-    }
-  }, [file, output.format, estimate.rendered, recipe, t])
-
-  // ⌘C: 文字を選んでいなければ、編集結果の画像をコピーする
+  // ⌘C: 文字を選んでいなければ、編集結果の画像をコピーする（ドロップダウンのコピーと同じ）
+  const { run } = save
   useEffect(() => {
     if (!source) return
     const onCopy = (event: ClipboardEvent) => {
@@ -123,22 +120,15 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
       const selection = window.getSelection()
       if (selection && !selection.isCollapsed) return
       event.preventDefault()
-      void copyAsPng()
+      void run('copyToClipboard')
     }
     document.addEventListener('copy', onCopy)
     return () => document.removeEventListener('copy', onCopy)
-  }, [source, copyAsPng])
+  }, [source, run])
 
   // 切り抜き中は Enter / Esc で抜ける
-  useEffect(() => {
-    if (!cropping) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target)) return
-      if (event.key === 'Enter' || event.key === 'Escape') setCropping(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [cropping])
+  useHotkey('enter', () => setCropping(false), { enabled: cropping })
+  useHotkey('escape', () => setCropping(false), { enabled: cropping })
 
   // 背景色を選んでいる最中は、その色をプレビューにだけ効かせる
   const previewRecipe = useMemo(
@@ -192,6 +182,10 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
         estimate={estimate}
         onFileSelect={(selected) => onFiles([selected])}
         save={save}
+        canUndo={history.canUndo}
+        canRedo={history.canRedo}
+        onUndo={history.undo}
+        onRedo={history.redo}
       />
 
       <div className="workspace">
@@ -230,29 +224,6 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
         {source && (
           <div className="bottom-bar">
             <div className="adjust-row">
-              <div className="flex items-center gap-1.5">
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  onClick={history.undo}
-                  disabled={!history.canUndo}
-                  title={`${t.undo} (⌘Z)`}
-                  aria-label={t.undo}
-                >
-                  <Undo2 />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  onClick={history.redo}
-                  disabled={!history.canRedo}
-                  title={`${t.redo} (⇧⌘Z)`}
-                  aria-label={t.redo}
-                >
-                  <Redo2 />
-                </Button>
-              </div>
-
               <div className="result-actions">
                 <ToggleGroup
                   type="single"
@@ -274,12 +245,6 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
                     </span>
                   </ToggleGroupItem>
                 </ToggleGroup>
-                {output.format !== 'png' && (
-                  <Button variant="outline" size="sm" onClick={() => void copyAsPng()} title={m.copyAsPngTitle}>
-                    <Copy />
-                    {m.copyAsPng}
-                  </Button>
-                )}
               </div>
             </div>
           </div>

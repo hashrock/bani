@@ -1,5 +1,4 @@
 import { FlipHorizontal2, FlipVertical2, MapPin, RotateCcw, RotateCw } from 'lucide-react'
-import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -8,7 +7,22 @@ import { cn } from '@/lib/utils'
 import { SidebarHead } from '../../components/BrandMark'
 import { CompatibilityList } from '../../components/CompatibilityList'
 import { SaveButton } from '../../components/SaveButton'
-import { SourceName } from '../../components/SidebarParts'
+import {
+  Chip,
+  EstimateBox,
+  EstimateRow,
+  Fact,
+  Facts,
+  HistoryButtons,
+  IconButton,
+  IconToggle,
+  LinkButton,
+  Notice,
+  SidebarFooter,
+  SmallButton,
+  SourceName,
+  ToolbarDivider,
+} from '../../components/SidebarParts'
 import { Step, StepHint } from '../../components/Step'
 import { pickFiles } from '../../core/opened'
 import type { OpenedFile } from '../../core/opened'
@@ -24,7 +38,7 @@ import {
 } from '../../media/image'
 import type { ImageEdit, ImageFormat, ImageInfo, ImageOutput, ImageRecipe, RenderedImage } from '../../media/image'
 import { formatBytes } from '../../utils/format'
-import { Chip, ColorField, Fact, Facts, FieldLabel, NumberField } from './fields'
+import { ColorField, FieldLabel, NumberField } from './fields'
 import { imageMessages } from './messages'
 
 /** 縦横比のプリセット（幅 / 高さ）。null は自由 */
@@ -77,9 +91,13 @@ interface ImageSidebarProps {
   estimate: { rendered: RenderedImage | null; last: RenderedImage | null; estimating: boolean; error: unknown }
   onFileSelect: (file: OpenedFile) => void
   save: SaveState
+  canUndo: boolean
+  canRedo: boolean
+  onUndo: () => void
+  onRedo: () => void
 }
 
-/** 画像の手順（入力 → 編集 → 出力 → 見込み → 保存）を上から並べたパネル */
+/** 画像の手順（入力 → 編集 → 出力 → 見込み）を上から並べたパネル。保存は下端に固定する */
 export function ImageSidebar({
   file,
   info,
@@ -97,6 +115,10 @@ export function ImageSidebar({
   estimate,
   onFileSelect,
   save,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }: ImageSidebarProps) {
   const { t } = useI18n()
   const m = useLocalMessages(imageMessages)
@@ -136,7 +158,7 @@ export function ImageSidebar({
                 )}
               </Facts>
               {info?.metadata.gps ? (
-                <Notice icon={<MapPin className="size-3.5" />} strong>
+                <Notice icon={<MapPin className="size-3.5" />} tone="warn">
                   {m.gpsNotice}
                 </Notice>
               ) : (
@@ -151,22 +173,21 @@ export function ImageSidebar({
             <StepHint>{t.inputEmpty}</StepHint>
           )}
           <div className="flex gap-1.5">
-            <Button
-              variant="outline"
-              size="xs"
-              className="h-7 px-2.5"
+            <SmallButton
               onClick={async () => {
                 const [picked] = await pickFiles({ accept: 'image/*' })
                 if (picked) onFileSelect(picked)
               }}
             >
               {t.selectFile}
-            </Button>
+            </SmallButton>
           </div>
         </Step>
 
-        <Step index={2} title={m.stepEdit}>
-          <div className="flex gap-1.5">
+        <Step index={2} title={t.stepEdit}>
+          <div className="flex flex-wrap gap-1">
+            <HistoryButtons canUndo={canUndo} canRedo={canRedo} onUndo={onUndo} onRedo={onRedo} />
+            <ToolbarDivider />
             <IconButton label={m.rotateLeft} disabled={!ready} onClick={() => onEdit({ type: 'rotate', turns: -1 })}>
               <RotateCcw />
             </IconButton>
@@ -174,12 +195,12 @@ export function ImageSidebar({
               <RotateCw />
             </IconButton>
             {/* lucide の名前は「反転の軸」の向きなので、左右反転には縦軸の FlipVertical2 を使う */}
-            <IconButton label={m.flipH} disabled={!ready} pressed={recipe.flipH} onClick={() => onEdit({ type: 'flipH' })}>
+            <IconToggle label={m.flipH} disabled={!ready} pressed={recipe.flipH} onPressedChange={() => onEdit({ type: 'flipH' })}>
               <FlipVertical2 />
-            </IconButton>
-            <IconButton label={m.flipV} disabled={!ready} pressed={recipe.flipV} onClick={() => onEdit({ type: 'flipV' })}>
+            </IconToggle>
+            <IconToggle label={m.flipV} disabled={!ready} pressed={recipe.flipV} onPressedChange={() => onEdit({ type: 'flipV' })}>
               <FlipHorizontal2 />
-            </IconButton>
+            </IconToggle>
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -314,7 +335,7 @@ export function ImageSidebar({
           </div>
         </Step>
 
-        <Step index={3} title={m.stepOutput}>
+        <Step index={3} title={t.stepOutput}>
           <ToggleGroup
             type="single"
             variant="outline"
@@ -385,8 +406,8 @@ export function ImageSidebar({
           )}
         </Step>
 
-        <Step index={4} title={m.stepEstimate}>
-          <div className="flex flex-col gap-1.5 rounded-md bg-muted px-3 py-2.5">
+        <Step index={4} title={t.stepEstimate}>
+          <EstimateBox>
             <EstimateRow label={m.outputResolution}>{size ? `${size.width}×${size.height}` : '—'}</EstimateRow>
             <EstimateRow label={t.estimatedSize}>
               {estimate.estimating && shownSize === null
@@ -398,9 +419,9 @@ export function ImageSidebar({
             {format.lossy && estimate.rendered?.quality != null && output.targetBytes !== null && (
               <EstimateRow label={m.outputQuality}>{estimate.rendered.quality}</EstimateRow>
             )}
-          </div>
+          </EstimateBox>
           {estimate.error != null && (
-            <Notice strong>
+            <Notice tone="warn">
               {m.estimateError}: {estimate.error instanceof Error ? estimate.error.message : String(estimate.error)}
             </Notice>
           )}
@@ -408,7 +429,7 @@ export function ImageSidebar({
             estimate.rendered.fitsTarget ? (
               <StepHint>{m.targetFits}</StepHint>
             ) : (
-              <Notice strong>{m.targetTooBig(formatBytes(output.targetBytes))}</Notice>
+              <Notice tone="warn">{m.targetTooBig(formatBytes(output.targetBytes))}</Notice>
             )
           )}
           {shownSize !== null ? (
@@ -418,76 +439,21 @@ export function ImageSidebar({
           )}
         </Step>
 
-        <Button
-          variant="link"
-          size="xs"
-          className="mx-4 mt-3.5 h-auto px-0 text-[11px] font-normal text-muted-foreground underline hover:text-foreground"
+        <LinkButton
+          className="mx-4 mt-3.5"
           disabled={!ready}
           onClick={() => {
             onCroppingChange(false)
             onEdit({ type: 'reset' })
           }}
         >
-          {m.resetEdits}
-        </Button>
+          {t.resetEdits}
+        </LinkButton>
       </div>
 
-      <div className="sidebar-footer">
+      <SidebarFooter progress={null}>
         <SaveButton save={save} disabled={!ready} />
-      </div>
+      </SidebarFooter>
     </aside>
-  )
-}
-
-function IconButton({
-  label,
-  pressed,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string
-  pressed?: boolean
-  disabled?: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
-  return (
-    <Button
-      variant={pressed ? 'default' : 'outline'}
-      size="icon-sm"
-      aria-label={label}
-      aria-pressed={pressed}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </Button>
-  )
-}
-
-/** 気づいてほしい注意書き。位置情報など、知らずに残ると困るものは strong で目立たせる */
-function Notice({ icon, strong, children }: { icon?: ReactNode; strong?: boolean; children: ReactNode }) {
-  return (
-    <div
-      role="note"
-      className={cn(
-        'flex items-start gap-1.5 rounded-md border px-2.5 py-2 text-[11px] leading-normal',
-        strong ? 'border-foreground/30 bg-muted font-medium text-foreground' : 'text-muted-foreground'
-      )}
-    >
-      {icon && <span className="mt-px shrink-0">{icon}</span>}
-      <span>{children}</span>
-    </div>
-  )
-}
-
-function EstimateRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex justify-between text-xs text-muted-foreground">
-      <span>{label}</span>
-      <strong className="text-[13px] text-foreground tabular-nums">{children}</strong>
-    </div>
   )
 }

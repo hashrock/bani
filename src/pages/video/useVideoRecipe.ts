@@ -70,6 +70,9 @@ export function useVideoRecipe() {
     resetFor,
     undo: history.undo,
     redo: history.redo,
+    /** 開いた・保存したときからレシピが変わったか（ドラッグ中の下書きは数えない） */
+    dirty: history.dirty,
+    markSaved: history.markSaved,
     canUndo: history.canUndo,
     canRedo: history.canRedo,
   }

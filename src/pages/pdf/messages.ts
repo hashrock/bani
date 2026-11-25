@@ -4,10 +4,7 @@ import type { PageRangeError, PdfErrorCode } from '../../media/pdf'
 const ja = {
   dropHere: 'PDF ファイルをここにドロップ',
   dropHint: 'ページの並べ替え・回転・削除・抽出、ほかの PDF との結合、分割ができます。',
-  stepInput: '入力',
-  stepEdit: '編集',
   stepSplit: '分割',
-  stepOutput: '保存',
   factPages: 'ページ数',
   factSize: 'サイズ',
   factTitle: 'タイトル',
@@ -15,7 +12,6 @@ const ja = {
   factSources: '結合する PDF',
   pageCount: (count: number) => `${count} ページ`,
   loading: '読み込み中…',
-  selectFile: 'ファイルを選択',
   addPdf: 'PDF を追加',
   addImages: '画像を追加',
   adding: '追加中…',
@@ -48,10 +44,7 @@ const ja = {
   splitRangesPlaceholder: '例: 1-3, 4-6, 7-',
   splitRun: (count: number) => `${count} ファイルに分割して保存`,
   splitRunning: '分割中…',
-  splitHint:
-    '編集後のページを分けます。フォルダを選べるブラウザではまとめて保存し、選べなければ 1 つずつダウンロードします。',
-  splitSaved: (count: number, folder: string) => `${count} ファイルを ${folder} に保存しました`,
-  splitDownloaded: (count: number) => `${count} ファイルをダウンロードしました`,
+  splitHint: '編集後のページを範囲ごとの PDF に分けて保存します。',
   splitFailed: (message: string) => `分割できませんでした: ${message}`,
 
   outputPages: (count: number) => `${count} ページの PDF を書き出します`,
@@ -93,10 +86,7 @@ type PdfMessages = typeof ja
 const en: PdfMessages = {
   dropHere: 'Drop a PDF file here',
   dropHint: 'Reorder, rotate, delete and extract pages, merge with other PDFs, or split.',
-  stepInput: 'Input',
-  stepEdit: 'Edit',
   stepSplit: 'Split',
-  stepOutput: 'Save',
   factPages: 'Pages',
   factSize: 'Size',
   factTitle: 'Title',
@@ -104,7 +94,6 @@ const en: PdfMessages = {
   factSources: 'PDFs to merge',
   pageCount: (count) => `${count} ${count === 1 ? 'page' : 'pages'}`,
   loading: 'Loading…',
-  selectFile: 'Select file',
   addPdf: 'Add PDF',
   addImages: 'Add images',
   adding: 'Adding…',
@@ -137,10 +126,7 @@ const en: PdfMessages = {
   splitRangesPlaceholder: 'e.g. 1-3, 4-6, 7-',
   splitRun: (count) => `Split into ${count} ${count === 1 ? 'file' : 'files'} and save`,
   splitRunning: 'Splitting…',
-  splitHint:
-    'Splits the edited pages. Saves into a folder where the browser allows it, otherwise downloads each file.',
-  splitSaved: (count, folder) => `Saved ${count} ${count === 1 ? 'file' : 'files'} to ${folder}`,
-  splitDownloaded: (count) => `Downloaded ${count} ${count === 1 ? 'file' : 'files'}`,
+  splitHint: 'Saves the edited pages as one PDF per range.',
   splitFailed: (message) => `Could not split: ${message}`,
 
   outputPages: (count) => `Writes a PDF with ${count} ${count === 1 ? 'page' : 'pages'}`,

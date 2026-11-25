@@ -77,7 +77,7 @@ const initialLoad = (opened: OpenedFile | null): Load => {
 }
 
 /** テキスト・コードの画面。ファイルを読み、文字コードを判定してからエディタを出す */
-export default function EditPage({ opened, isDragging, onFiles }: EditPageProps) {
+export default function EditPage({ opened, isDragging, onFiles, onDirtyChange }: EditPageProps) {
   const m = useLocalMessages(textMessages)
   const [load, setLoad] = useState<Load>(() => initialLoad(opened))
   // 新規を押したらエディタごと作り直す（取り消しの履歴も持ち越さない）
@@ -109,6 +109,7 @@ export default function EditPage({ opened, isDragging, onFiles }: EditPageProps)
           initial={load.doc}
           isDragging={isDragging}
           onFiles={onFiles}
+          onDirtyChange={onDirtyChange}
           onNew={() => {
             setLoad({ status: 'ready', doc: untitledDocument() })
             setDocumentId((id) => id + 1)

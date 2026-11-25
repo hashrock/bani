@@ -31,3 +31,27 @@ export function usePersistentState<T>(
 
   return [value, set]
 }
+
+/**
+ * 出力の形式のように、利用者が選ぶまでは開いたファイルに合わせ（derived）、
+ * 一度選んだらその選択を覚えて、別のファイルを開いても使うもの（ROADMAP.md「共通の操作モデル」の「出力の既定」）。
+ * 更新関数は、いま効いている値（選んだもの、なければ derived）を受け取る。
+ */
+export function useRememberedChoice<T>(
+  key: string,
+  derived: T
+): [T, (next: T | ((current: T) => T)) => void, () => void] {
+  const [chosen, setChosen] = usePersistentState<T | null>(key, null)
+  const value = chosen ?? derived
+  const set = useCallback(
+    (next: T | ((current: T) => T)) =>
+      setChosen((current) => {
+        const effective = current ?? derived
+        return typeof next === 'function' ? (next as (value: T) => T)(effective) : next
+      }),
+    [setChosen, derived]
+  )
+  /** 選んだものを忘れ、また開いたファイルに合わせる */
+  const reset = useCallback(() => setChosen(null), [setChosen])
+  return [value, set, reset]
+}

@@ -133,7 +133,7 @@ describe('batchReducer', () => {
     )
   })
 
-  // status に対応するデータしか持てないことは BatchFileStatus のユニオンが保証するので、
+  // status に対応するデータしか持てないことは BatchEntry のユニオンが保証するので、
   // ここでは型に書けない進捗の値だけを確かめる
   test('どの操作列をたどっても、進捗は status と食い違わない', () => {
     fc.assert(
