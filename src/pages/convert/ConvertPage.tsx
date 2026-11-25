@@ -19,7 +19,8 @@ import { useBatchConversion } from '../../hooks/useBatchConversion'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import type { BatchInput } from '../../state/batchConversion'
-import { CONVERT_ACCEPT, CONVERT_KINDS, isConvertKind } from './kinds'
+import { isSvgFile } from '../../media/image/svg'
+import { CONVERT_ACCEPT, CONVERT_KINDS, batchKindOf, isConvertKind } from './kinds'
 import type { ConvertKind } from './kinds'
 import { convertMessages } from './messages'
 import { DEFAULT_CONVERT_SETTINGS } from './outputs'
@@ -65,7 +66,7 @@ export function ConvertPage({ incoming, isDragging }: ConvertPageProps) {
       const kinds = await Promise.all(selected.map((file) => detectKindAsync(file)))
       const accepted: BatchInput[] = []
       selected.forEach((file, i) => {
-        const kind = kinds[i]
+        const kind = batchKindOf(file, kinds[i])
         if (isConvertKind(kind)) accepted.push({ file, kind })
       })
       add(accepted)
@@ -163,7 +164,12 @@ export function ConvertPage({ incoming, isDragging }: ConvertPageProps) {
                   <AudioSteps startIndex={startIndex} output={audio} onChange={setAudio} />
                 )}
                 {kind === 'image' && (
-                  <ImageSteps startIndex={startIndex} value={image} onChange={setImage} />
+                  <ImageSteps
+                    startIndex={startIndex}
+                    value={image}
+                    onChange={setImage}
+                    hasSvg={batch.entries.some((entry) => entry.kind === 'image' && isSvgFile(entry.file))}
+                  />
                 )}
                 {kind === 'text' && (
                   <TextSteps startIndex={startIndex} value={text} onChange={setText} />

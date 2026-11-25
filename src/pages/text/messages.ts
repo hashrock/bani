@@ -1,4 +1,5 @@
 import { defineMessages } from '../../i18n/local'
+import type { SvgRemovals } from '../../media/image/svg'
 import type { JsonErrorReason } from './json'
 
 /** テキスト・コードの画面の文言。日本語を正とし、英語は同じ形にそろえる */
@@ -58,6 +59,37 @@ export const textMessages = defineMessages({
     subtitleConvertHint: (from: string, to: string) =>
       `${from} から ${to} に変換して、別名で保存します。${to} にない書式は落とします。`,
     subtitleDropped: (count: number) => `読めない ${count} ブロックは変換で落ちます`,
+
+    svgExport: '画像として書き出す',
+    svgPreview: '書き出す画像の下見',
+    svgNoPreview: '下見できません',
+    svgOutputSize: (width: number, height: number) => `${width} × ${height} px`,
+    svgSize: '大きさ',
+    svgSizeScale: '倍率',
+    svgSizeWidth: '幅',
+    svgWidthPx: '幅（px）',
+    svgDpi: '解像度（dpi）',
+    svgBackground: '背景',
+    svgBackgroundNone: '透明',
+    svgBackgroundWhite: '白',
+    svgBackgroundBlack: '黒',
+    svgBackgroundCustom: '背景の色を選ぶ',
+    svgFlattened: 'JPEG は透過できないので、透明な部分は白になります。',
+    svgCopy: 'PNG としてコピー',
+    svgHint: '外部の画像やフォントは読み込まず、スクリプトも動かしません。',
+    svgInvalid: 'SVG として読めません。タグの閉じ忘れや、引用符のない属性値がないか確かめてください。',
+    svgRenderFailed: 'ブラウザがこの SVG を描けませんでした。',
+    svgTooLarge: (max: number) => `大きすぎて書き出せません（1 辺 ${max}px まで）。`,
+    svgFailed: (message: string) => `画像として書き出せませんでした: ${message}`,
+    svgRemoved: (removed: SvgRemovals) =>
+      `${[
+        removed.externalReference > 0 && `外部の画像・フォントなどへの参照 ${removed.externalReference} 件`,
+        removed.script > 0 && `スクリプト ${removed.script} 件`,
+        removed.eventHandler > 0 && `イベント属性 ${removed.eventHandler} 件`,
+        removed.embeddedContent > 0 && `foreignObject などの埋め込み ${removed.embeddedContent} 件`,
+      ]
+        .filter(Boolean)
+        .join('、')}を取り除いて描きます（エディタの本文は変えません）。`,
 
     encoding: '文字コード',
     keepEncoding: (label: string) => `変えない（${label}）`,
@@ -158,6 +190,37 @@ export const textMessages = defineMessages({
     subtitleConvertHint: (from: string, to: string) =>
       `Converts ${from} to ${to} and saves under a new name. Styling ${to} does not support is dropped.`,
     subtitleDropped: (count: number) => `${count} unreadable blocks will be dropped`,
+
+    svgExport: 'Export as image',
+    svgPreview: 'Preview of the exported image',
+    svgNoPreview: 'No preview',
+    svgOutputSize: (width: number, height: number) => `${width} × ${height} px`,
+    svgSize: 'Size',
+    svgSizeScale: 'Scale',
+    svgSizeWidth: 'Width',
+    svgWidthPx: 'Width (px)',
+    svgDpi: 'Resolution (dpi)',
+    svgBackground: 'Background',
+    svgBackgroundNone: 'None',
+    svgBackgroundWhite: 'White',
+    svgBackgroundBlack: 'Black',
+    svgBackgroundCustom: 'Pick a background color',
+    svgFlattened: 'JPEG has no transparency, so transparent areas become white.',
+    svgCopy: 'Copy as PNG',
+    svgHint: 'External images and fonts are never loaded, and scripts never run.',
+    svgInvalid: 'This cannot be read as SVG. Check for unclosed tags or unquoted attribute values.',
+    svgRenderFailed: 'The browser could not draw this SVG.',
+    svgTooLarge: (max: number) => `Too large to export (up to ${max}px per side).`,
+    svgFailed: (message: string) => `Could not export as an image: ${message}`,
+    svgRemoved: (removed: SvgRemovals) =>
+      `Drawn without ${[
+        removed.externalReference > 0 && `${removed.externalReference} reference(s) to external images, fonts, etc.`,
+        removed.script > 0 && `${removed.script} script(s)`,
+        removed.eventHandler > 0 && `${removed.eventHandler} event attribute(s)`,
+        removed.embeddedContent > 0 && `${removed.embeddedContent} embedded element(s) such as foreignObject`,
+      ]
+        .filter(Boolean)
+        .join(', ')} (the text in the editor is not changed).`,
 
     encoding: 'Encoding',
     keepEncoding: (label: string) => `Keep (${label})`,

@@ -34,6 +34,7 @@ import {
   resolveTextOutput,
   supportsBom,
 } from '../../media/text'
+import { sniffSvg } from '../../media/image/svg'
 import { formatBytes } from '../../utils/format'
 import { CodeEditor } from './CodeEditor'
 import type { PreparedText, TextBase } from './document'
@@ -55,6 +56,7 @@ import { MarkdownPreview } from './MarkdownPreview'
 import { textMessages } from './messages'
 import { Choice, Field, Segmented, ToolButton } from './parts'
 import { shiftTimingLines } from './subtitle'
+import { SvgExportStep } from './SvgExportStep'
 
 /** 開くときに決まっていること。EditPage がファイルを読んで作る */
 export interface InitialDocument {
@@ -203,6 +205,9 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew, onDirtyC
   )
   const showPreview = language === 'markdown' && prefs.markdownPreview
   const markdown = useMemo(() => (showPreview ? parseMarkdown(snapshot) : null), [showPreview, snapshot])
+  // 中身が SVG なら（拡張子によらず）画像として書き出せるようにする
+  const isSvg = useMemo(() => sniffSvg(snapshot), [snapshot])
+  const getText = useCallback(() => view?.state.doc.toString() ?? snapshot, [view, snapshot])
 
   // 編集中はタブの題名にも印を付ける（ほかのタブから見て未保存とわかるように）
   useEffect(() => {
@@ -645,6 +650,9 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew, onDirtyC
               </Notice>
             )}
           </Step>
+
+          {/* 別の書き出しは出力の手順の後ろ（ROADMAP.md「共通の操作モデル」の画面の配置） */}
+          {isSvg && <SvgExportStep index={5} source={snapshot} getText={getText} name={suggestedName} />}
         </div>
 
         <div className="sidebar-footer">
