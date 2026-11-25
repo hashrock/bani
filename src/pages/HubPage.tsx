@@ -1,7 +1,10 @@
 import { useRef } from 'react'
+import { buttonVariants } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 import type { Capabilities } from '../app/intake'
 import { MEDIA_KINDS, formatRoute } from '../app/routes'
-import { BrandMark, LangSwitch } from '../components/BrandMark'
+import { HubLayout } from '../components/HubLayout'
 import { useI18n } from '../i18n/context'
 
 interface HubPageProps {
@@ -16,56 +19,73 @@ export function HubPage({ capabilities, isDragging, onFiles }: HubPageProps) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   return (
-    <div className="hub">
-      <header className="hub-head">
-        <BrandMark />
-        <LangSwitch />
-      </header>
+    <HubLayout>
+      <p className="text-xl leading-normal font-semibold">{t.hubTagline}</p>
 
-      <main className="hub-main">
-        <p className="hub-tagline">{t.hubTagline}</p>
+      {/* 領域全体を押せるようにして、ドロップとクリックのどちらでも入れるようにする */}
+      <button
+        type="button"
+        className={cn(
+          'flex flex-col items-center gap-3 rounded-[10px] border-2 border-dashed border-input bg-background px-6 py-14 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:border-primary focus-visible:outline-none',
+          isDragging && 'border-primary bg-muted/40'
+        )}
+        onClick={() => inputRef.current?.click()}
+      >
+        <span className="text-base font-semibold">{t.hubDrop}</span>
+        <span className="text-center text-xs leading-relaxed text-muted-foreground">
+          {t.hubDropHint}
+        </span>
+        <span className={cn(buttonVariants({ variant: 'outline', size: 'xs' }), 'h-7 px-2.5')}>{t.hubPick}</span>
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          const selected = e.target.files
+          if (selected && selected.length > 0) onFiles(Array.from(selected))
+          e.target.value = ''
+        }}
+      />
 
-        <button
-          type="button"
-          className={`hub-drop ${isDragging ? 'dragging' : ''}`}
-          onClick={() => inputRef.current?.click()}
-        >
-          <span className="hub-drop-title">{t.hubDrop}</span>
-          <span className="hub-drop-hint">{t.hubDropHint}</span>
-          <span className="ghost-btn">{t.hubPick}</span>
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          style={{ display: 'none' }}
-          onChange={(e) => {
-            const selected = e.target.files
-            if (selected && selected.length > 0) onFiles(Array.from(selected))
-            e.target.value = ''
-          }}
-        />
-
-        <ul className="hub-kinds">
-          {MEDIA_KINDS.map((kind) => {
-            const canEdit = capabilities.edit.includes(kind)
-            const canConvert = capabilities.convert.includes(kind)
-            return (
-              <li key={kind} className={`hub-kind ${canEdit || canConvert ? '' : 'pending'}`}>
-                <span className="hub-kind-name">{t.kindLabel[kind]}</span>
-                {canEdit || canConvert ? (
-                  <span className="hub-kind-links">
-                    {canEdit && <a href={formatRoute({ name: 'edit', kind })}>{t.hubEdit}</a>}
-                    {canConvert && <a href={formatRoute({ name: 'convert' })}>{t.hubConvert}</a>}
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
+        {MEDIA_KINDS.map((kind) => {
+          const canEdit = capabilities.edit.includes(kind)
+          const canConvert = capabilities.convert.includes(kind)
+          const available = canEdit || canConvert
+          return (
+            <li key={kind}>
+              <Card
+                size="sm"
+                className={cn(
+                  'h-full flex-row items-center justify-between gap-2 px-3.5 py-3 text-[13px]',
+                  // 未対応の種類は枠だけ残して沈め、対応済みのものと見分けやすくする
+                  !available && 'bg-transparent text-muted-foreground shadow-none'
+                )}
+              >
+                <span className="font-semibold">{t.kindLabel[kind]}</span>
+                {available ? (
+                  <span className="flex gap-2.5 text-xs">
+                    {canEdit && (
+                      <a className="underline underline-offset-2" href={formatRoute({ name: 'edit', kind })}>
+                        {t.hubEdit}
+                      </a>
+                    )}
+                    {canConvert && (
+                      <a className="underline underline-offset-2" href={formatRoute({ name: 'convert' })}>
+                        {t.hubConvert}
+                      </a>
+                    )}
                   </span>
                 ) : (
-                  <span className="hub-kind-soon">{t.hubComingSoon}</span>
+                  <span className="text-[11px]">{t.hubComingSoon}</span>
                 )}
-              </li>
-            )
-          })}
-        </ul>
-      </main>
-    </div>
+              </Card>
+            </li>
+          )
+        })}
+      </ul>
+    </HubLayout>
   )
 }
