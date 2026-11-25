@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { detectKind, planIntake, refineKind } from './intake'
+import { detectKind, planIntake, refineKind, stillKind } from './intake'
 import type { Capabilities } from './intake'
 import { MEDIA_KINDS } from './routes'
 import type { MediaKind } from './routes'
@@ -54,7 +54,9 @@ describe('planIntake', () => {
         const allowed: readonly MediaKind[] =
           plan.route.name === 'edit' ? caps.edit : caps.convert
         for (const index of plan.accepted) {
-          expect(allowed).toContain(kinds[index])
+          // アニメーションは、その画面がなければ画像として受け付ける
+          const kind = kinds[index]!
+          expect(allowed.includes(kind) || allowed.includes(stillKind(kind))).toBe(true)
         }
       })
     )
@@ -66,7 +68,9 @@ describe('planIntake', () => {
         const usable = kinds.some(
           (kind) =>
             kind !== null &&
-            (caps.convert.includes(kind) || (kinds.length === 1 && caps.edit.includes(kind)))
+            [kind, stillKind(kind)].some(
+              (k) => caps.convert.includes(k) || (kinds.length === 1 && caps.edit.includes(k))
+            )
         )
         expect(planIntake(kinds, caps) !== null).toBe(usable)
       })
@@ -82,6 +86,15 @@ describe('planIntake', () => {
       accepted: [0],
       rejected: [1],
     })
+  })
+})
+
+describe('アニメーション（gif）', () => {
+  it('GIF の画面があればそこへ、なければ画像の画面へ。一括変換では画像として受け付ける', () => {
+    const caps: Capabilities = { edit: ['image', 'gif'], convert: ['image'] }
+    expect(planIntake(['gif'], caps)?.route).toEqual({ name: 'edit', kind: 'gif' })
+    expect(planIntake(['gif'], { edit: ['image'], convert: [] })?.route).toEqual({ name: 'edit', kind: 'image' })
+    expect(planIntake(['gif', 'image'], caps)).toEqual({ route: { name: 'convert' }, accepted: [0, 1], rejected: [] })
   })
 })
 

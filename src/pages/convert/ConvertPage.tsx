@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
 import { toast } from 'sonner'
-import { detectKindAsync } from '../../app/intake'
+import { detectKindAsync, stillKind } from '../../app/intake'
+import { navigate } from '../../app/router'
 import { BatchStatus } from '../../components/BatchStatus'
 import { SidebarHead } from '../../components/BrandMark'
 import { FileUpload } from '../../components/FileUpload'
@@ -16,6 +17,7 @@ import type { OpenedFile } from '../../core/opened'
 import { useHotkey } from '../../core/useHotkey'
 import { usePersistentState } from '../../core/usePersistentState'
 import { useBatchConversion } from '../../hooks/useBatchConversion'
+import { handOffFrames, handoffMessages } from '../gif/handoff'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import type { BatchInput } from '../../state/batchConversion'
@@ -45,6 +47,7 @@ const STEP_COUNT: Record<ConvertKind, number> = { video: 3, audio: 2, image: 3, 
 export function ConvertPage({ incoming, isDragging }: ConvertPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(convertMessages)
+  const gm = useLocalMessages(handoffMessages)
 
   // 種類ごとの出力設定は、画面を作り直しても（ファイルを選び直しても）残す
   const [video, setVideo] = usePersistentState('convert.video', DEFAULT_CONVERT_SETTINGS.video)
@@ -65,7 +68,9 @@ export function ConvertPage({ incoming, isDragging }: ConvertPageProps) {
       const kinds = await Promise.all(selected.map((file) => detectKindAsync(file)))
       const accepted: BatchInput[] = []
       selected.forEach((file, i) => {
-        const kind = kinds[i]
+        // アニメーション GIF は画像として変換する（1 枚目だけ）
+        const found = kinds[i]
+        const kind = found && stillKind(found)
         if (isConvertKind(kind)) accepted.push({ file, kind })
       })
       add(accepted)
@@ -144,6 +149,22 @@ export function ConvertPage({ incoming, isDragging }: ConvertPageProps) {
                 </SmallButton>
               )}
             </div>
+            {/* 画像が 2 枚以上あれば、並んでいる順にフレームにして GIF の画面で開ける（ROADMAP.md Phase 10） */}
+            {countOf('image') >= 2 && (
+              <>
+                <SmallButton
+                  className="self-start"
+                  disabled={batch.running}
+                  onClick={() => {
+                    handOffFrames(batch.entries.filter((entry) => entry.kind === 'image').map((entry) => entry.file))
+                    navigate({ name: 'edit', kind: 'gif' })
+                  }}
+                >
+                  {gm.makeGif(countOf('image'))}
+                </SmallButton>
+                <StepHint>{gm.makeGifHint}</StepHint>
+              </>
+            )}
           </Step>
 
           {groups.map(({ kind, startIndex }) => {
