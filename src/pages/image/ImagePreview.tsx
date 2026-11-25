@@ -11,11 +11,11 @@ const GUTTER = 24
 /** プレビューの Canvas の 1 辺の上限（実画素）。巨大な写真でも描き直しを軽く保つ */
 const MAX_PREVIEW_PIXELS = 4096
 
-/** 透過部分を見分けるための市松模様 */
+/** 透過部分を見分けるための市松模様（色は配色に合わせて index.css の変数から） */
 const CHECKER: CSSProperties = {
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--checker-light)',
   backgroundImage:
-    'linear-gradient(45deg, #e5e5e5 25%, transparent 25%, transparent 75%, #e5e5e5 75%), linear-gradient(45deg, #e5e5e5 25%, transparent 25%, transparent 75%, #e5e5e5 75%)',
+    'linear-gradient(45deg, var(--checker-dark) 25%, transparent 25%, transparent 75%, var(--checker-dark) 75%), linear-gradient(45deg, var(--checker-dark) 25%, transparent 25%, transparent 75%, var(--checker-dark) 75%)',
   backgroundSize: '16px 16px',
   backgroundPosition: '0 0, 8px 8px',
 }

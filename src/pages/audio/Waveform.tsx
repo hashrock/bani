@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { useTheme } from '../../app/theme'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import { applyTrim } from '../../state/trim'
@@ -44,6 +45,8 @@ export function Waveform({
 }: WaveformProps) {
   const { t } = useI18n()
   const m = useLocalMessages(audioMessages)
+  // 色は CSS 変数から読むので、配色が変わったら描き直す
+  const { theme } = useTheme()
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -100,7 +103,7 @@ export function Waveform({
       ctx.fillStyle = strong
       ctx.fillRect(x, mid - e, 1, e * 2)
     }
-  }, [peaks, duration, size, shown.start, shown.end, gainAt])
+  }, [peaks, duration, size, shown.start, shown.end, gainAt, theme])
 
   const timeAt = useCallback(
     (clientX: number) => {
@@ -206,7 +209,7 @@ export function Waveform({
         />
 
         <div
-          className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-[#1b4f9c]"
+          className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-timeline-strong"
           style={{ left: percent(currentTime, duration) }}
         />
 

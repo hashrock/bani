@@ -68,7 +68,7 @@
 
   /* ドラッグ中のファイルを受けられる場所を示す */
   .drop-target-active {
-    outline: 2px dashed #999;
+    outline: 2px dashed var(--drop-outline);
     outline-offset: -8px;
   }
 
@@ -84,7 +84,7 @@
   }
 
   .preview-area.drop-target-active {
-    background: #e8e8e8;
+    background: var(--drop-fill);
   }
 
   /* 変換前後の映像を重ね、opacity で切り替える（読み込み直しによるちらつきを避ける） */
@@ -157,7 +157,7 @@
   .timeline-track {
     position: relative;
     height: 12px;
-    background: #ececec;
+    background: var(--timeline-track);
     border-radius: 3px;
   }
 
@@ -176,7 +176,7 @@
     width: 10px;
     height: 20px;
     margin-left: -5px;
-    background: #fff;
+    background: var(--background);
     border: 1px solid var(--timeline);
     border-radius: 3px;
     cursor: ew-resize;
@@ -196,7 +196,7 @@
 
   .timeline-handle:hover,
   .timeline.dragging .timeline-handle {
-    border-color: #1b4f9c;
+    border-color: var(--timeline-strong);
   }
 
   .timeline-playhead {

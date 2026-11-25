@@ -29,6 +29,8 @@
   --color-background: var(--background);
   --color-timeline: var(--timeline);
   --color-timeline-range: var(--timeline-range);
+  --color-timeline-strong: var(--timeline-strong);
+  --color-timeline-track: var(--timeline-track);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -40,7 +42,8 @@
 
 /*
  * 配色の正。白地に黒をアクセントにした無彩色で、色を持つのは成否（success / destructive）とタイムラインだけ。
- * ダークモードを入れるときは .dark に同じ名前で値を足す（hashrock-switcher の theme も合わせて切り替える）
+ * ダークモードは .dark（<html> に付く。src/app/theme.ts）に同じ名前で値を持つ。色を足すときは両方に書く。
+ * 部品や canvas に色を直接書かず、ここの変数を読む
  */
 :root {
   --background: #fff;
@@ -65,7 +68,64 @@
   --ring: #000;
   --timeline: #4a7fd0;
   --timeline-range: #d7e3f5;
+  /* つまみの縁の強調・音声の再生位置 */
+  --timeline-strong: #1b4f9c;
+  --timeline-track: #ececec;
+  /* ドラッグ中に受けられる場所の枠と地 */
+  --drop-outline: #999;
+  --drop-fill: #e8e8e8;
+  /* 透明な部分を示す市松模様 */
+  --checker-light: #fff;
+  --checker-dark: #e5e5e5;
   --radius: 0.375rem;
+}
+
+/*
+ * ダーク。作業領域（--muted）は地より少し明るくして、プレビューの縁が見えるようにする。
+ * 構文の強調（--syntax-*）はテキストの画面だけが読む。ライトでは codemirror の既定の色を使う
+ */
+.dark {
+  --background: #121212;
+  --foreground: #ededed;
+  --card: #181818;
+  --card-foreground: #ededed;
+  --popover: #1e1e1e;
+  --popover-foreground: #ededed;
+  --primary: #ededed;
+  --primary-foreground: #000;
+  --secondary: #262626;
+  --secondary-foreground: #ededed;
+  --muted: #1b1b1b;
+  --muted-foreground: #a3a3a3;
+  --accent: #262626;
+  --accent-foreground: #ededed;
+  --destructive: #f2665f;
+  --success: #66bb6a;
+  --border: #2e2e2e;
+  --input: #444;
+  --ring: #ededed;
+  --timeline: #6f9be0;
+  --timeline-range: #22344f;
+  --timeline-strong: #a9c6f5;
+  --timeline-track: #2c2c2c;
+  --drop-outline: #777;
+  --drop-fill: #262626;
+  --checker-light: #2a2a2a;
+  --checker-dark: #363636;
+  --syntax-meta: #a8b0a8;
+  --syntax-keyword: #c792ea;
+  --syntax-atom: #82aaff;
+  --syntax-literal: #b5cea8;
+  --syntax-string: #f0a08c;
+  --syntax-regexp: #ff9e64;
+  --syntax-definition: #82b1ff;
+  --syntax-local: #b4a7ff;
+  --syntax-type: #4ec9b0;
+  --syntax-class: #5fc4d4;
+  --syntax-special: #8cc0d8;
+  --syntax-property: #9cb8ff;
+  --syntax-comment: #b39565;
+  --syntax-invalid: #ff6b6b;
 }
 
 @layer base {
@@ -81,6 +141,10 @@
     @apply font-sans;
     color-scheme: light;
     -webkit-font-smoothing: antialiased;
+  }
+  /* スクロールバーやフォームの既定の部品も暗くする */
+  html.dark {
+    color-scheme: dark;
   }
   body {
     @apply bg-background text-foreground;

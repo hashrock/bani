@@ -1,6 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+// 配色（.dark）を最初の描画より前に決める
+import './app/theme'
 import App from './App.tsx'
 import { I18nProvider } from './i18n/I18nProvider'
 
