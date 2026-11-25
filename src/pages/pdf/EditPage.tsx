@@ -18,6 +18,7 @@ import {
   Facts,
   HistoryButtons,
   IconButton,
+  ResetSettingsButton,
   SidebarFooter,
   SmallButton,
   SourceName,
@@ -26,9 +27,9 @@ import {
 import { Step, StepHint } from '../../components/Step'
 import { pickFiles } from '../../core/opened'
 import type { OpenedFile } from '../../core/opened'
-import { canPickFolder, planSaveMany, saveFiles } from '../../core/save'
+import { canPickFolder, pickSaveFolder, planSaveMany, saveFiles } from '../../core/save'
 import type { SaveManyMethod } from '../../core/save'
-import { useHotkey } from '../../core/useHotkey'
+import { shouldHandle, useHotkey } from '../../core/useHotkey'
 import { usePersistentState } from '../../core/usePersistentState'
 import { useRecipeHistory } from '../../core/useRecipeHistory'
 import { savedFilesMessage, useSave } from '../../core/useSave'
@@ -37,11 +38,17 @@ import { useLocalMessages } from '../../i18n/local'
 import {
   applyPdfEdit,
   chunkPageRanges,
+  compressImageSettings,
+  compressPdf,
+  createPdfRasterizer,
   createPdfRecipe,
   imagesToPdf,
   isPdfError,
+  pageImageNames,
   parsePageRanges,
   probePdf,
+  renderPageToImageFile,
+  renderPagesToImages,
   renderPdf,
   splitPdf,
   type PdfEdit,
@@ -53,6 +60,8 @@ import { isAbortError } from '../../utils/abort'
 import { formatBytes } from '../../utils/format'
 import type { EditPageProps } from '../types'
 import { messages } from './messages'
+import { OutputSteps } from './OutputSteps'
+import { DEFAULT_OUTPUT, targetPages, type PdfOutputSettings } from './output'
 import {
   clickSelection,
   dropSlotToMoveTarget,
@@ -66,6 +75,7 @@ import {
 } from './pageModel'
 import { PageGrid } from './PageGrid'
 import { ThumbnailStore } from './thumbnailStore'
+import { useRasterEstimate } from './useRasterEstimate'
 
 /** レシピの source が指す入力。0 番は開いたファイルで、結合で後ろに増えるだけ（位置は変わらない） */
 interface Source {
@@ -82,6 +92,11 @@ const EMPTY_RECIPE: PdfRecipe = { pages: [] }
 const THUMBNAIL_SIZE = 160 * Math.min(2, Math.max(1, globalThis.devicePixelRatio || 1))
 // 画像から作るページは、ほかの PDF と並べても違和感のない A4 にそろえる
 const IMAGE_PAGE = { pageSize: 'a4', margin: 24, orientation: 'auto' } as const
+
+const stemOf = (name: string) => name.replace(/\.pdf$/i, '') || 'document'
+
+const errorMessage = (error: unknown, pdfError: Record<PdfErrorCode, string>) =>
+  isPdfError(error) ? pdfError[error.code] : error instanceof Error ? error.message : String(error)
 
 const errorCode = (error: unknown): PdfErrorCode => (isPdfError(error) ? error.code : 'invalid')
 
@@ -105,7 +120,16 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
   const { recipe, update, replace } = history
   const [selectionState, setSelection] = useState<Selection>(emptySelection)
   const [store] = useState(() => new ThumbnailStore(THUMBNAIL_SIZE))
-  const [busy, setBusy] = useState<'adding' | 'splitting' | null>(null)
+  const [busy, setBusy] = useState<'adding' | 'splitting' | 'exporting' | 'opening' | null>(null)
+  // ページを画像に描く書き出し（画像・圧縮）は時間がかかるので、進み具合と中止を下端に出す
+  const [progress, setProgress] = useState<number | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const [rasterizer] = useState(() => createPdfRasterizer())
+  const [output, setOutput] = usePersistentState<PdfOutputSettings>('pdf.output', DEFAULT_OUTPUT)
+  // 圧縮して保存した大きさ。どのページ・設定で作ったかも持ち、変われば出さない
+  const [actual, setActual] = useState<{ key: string; bytes: number } | null>(null)
+  // 圧縮して保存した先。PDF の上書き先とは分けて持つ（下の useSave）
+  const [compressHandle, setCompressHandle] = useState<FileSystemFileHandle | null>(null)
 
   const [keepText, setKeepText] = useState('')
   const [keepError, setKeepError] = useState<string | null>(null)
@@ -134,6 +158,13 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
   useEffect(() => {
     sources.forEach((source, index) => store.setSource(index, source.file))
   }, [store, sources])
+  useEffect(() => {
+    sources.forEach((source, index) => rasterizer.setSource(index, source.file))
+  }, [rasterizer, sources])
+  // StrictMode で一度閉じても、次に描くときに開き直すので作り直さなくてよい
+  useEffect(() => () => void rasterizer.destroy(), [rasterizer])
+  // 画面を離れたら、走っている書き出しも止める
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   // 開いたファイルを読む。暗号化されていれば編集はさせず、理由だけを示す
   useEffect(() => {
@@ -207,7 +238,7 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
     toast(m.appended(probed.reduce((sum, source) => sum + source.info.pageCount, 0)))
   }
 
-  const withBusy = async (kind: 'adding' | 'splitting', task: () => Promise<void>) => {
+  const withBusy = async (kind: NonNullable<typeof busy>, task: () => Promise<void>) => {
     setBusy(kind)
     try {
       await task()
@@ -288,26 +319,120 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
       } catch (error) {
         if (isAbortError(error)) return
         console.error('Split failed:', error)
-        const message = isPdfError(error)
-          ? m.pdfError[error.code]
-          : error instanceof Error
-            ? error.message
-            : String(error)
-        toast.error(m.splitFailed(message))
+        toast.error(m.splitFailed(errorMessage(error, m.pdfError)))
       }
     })
 
-  // ページの編集は劣化しない。開いたファイルだけからできていれば上書きが主になる
+  const stem = stemOf(file?.name ?? 'document.pdf')
+  const target = targetPages(recipe.pages, selected, output.scope)
+  const firstUsed = sources[recipe.pages[0]?.source ?? 0]
+  const originalBytes = [...usedSources].reduce((sum, source) => sum + (sources[source]?.file.size ?? 0), 0)
+  const compressing = output.kind === 'compress'
+  const imagesMode = ready && output.kind === 'images'
+  const compressKey = JSON.stringify([recipe.pages, output.compress])
+  const { estimate, estimating } = useRasterEstimate(
+    rasterizer,
+    compressing ? recipe.pages : target.pages,
+    compressing ? compressImageSettings(output.compress) : output.images,
+    compressing,
+    ready && output.kind !== 'pdf' && pageCount > 0 && busy === null
+  )
+
+  /** 中止できる書き出しを走らせ、進み具合を下端に出す */
+  const withProgress = async <T,>(
+    task: (options: { signal: AbortSignal; onProgress: (progress: number) => void }) => Promise<T>
+  ) => {
+    const controller = new AbortController()
+    abortRef.current = controller
+    setProgress(0)
+    try {
+      return await task({ signal: controller.signal, onProgress: (value) => setProgress(value * 100) })
+    } finally {
+      abortRef.current = null
+      setProgress(null)
+    }
+  }
+
+  const saveImages = (method: SaveManyMethod) =>
+    withBusy('exporting', async () => {
+      if (target.pages.length === 0) return
+      try {
+        // 描き終えるまで待つと、フォルダを選ぶ画面を開ける操作の猶予が切れるので、先に選ばせる
+        const folder = method === 'folder' ? await pickSaveFolder() : undefined
+        const names = pageImageNames(stem, target.numbers, pageCount, output.images.format)
+        const images = await withProgress((options) =>
+          renderPagesToImages(rasterizer, target.pages, output.images, names, options)
+        )
+        const saved = await saveFiles(images, method, { zipName: `${stem}-images`, folder })
+        toast(savedFilesMessage(t, saved))
+      } catch (error) {
+        if (isAbortError(error)) return
+        console.error('PDF to images failed:', error)
+        toast.error(m.exportFailed(errorMessage(error, m.pdfError)))
+      }
+    })
+
+  const openInImage = () =>
+    withBusy('opening', async () => {
+      if (selected.length !== 1) return
+      const [index] = selected
+      try {
+        const [name] = pageImageNames(stem, [index + 1], pageCount, output.images.format)
+        const image = await renderPageToImageFile(rasterizer, recipe.pages[index], output.images, name)
+        // 開き直しは振り分け（planIntake）を通るので、保存していない編集があれば先に確かめられる
+        onFiles([{ file: image, handle: null }])
+      } catch (error) {
+        console.error('PDF page to image failed:', error)
+        toast.error(m.exportFailed(errorMessage(error, m.pdfError)))
+      }
+    })
+
   const save = useSave({
     opened,
-    lossless: true,
+    // ページの編集は劣化しないので上書きが主。圧縮は画像に描き直す非可逆な保存なので別名が主
+    lossless: !compressing,
     sameFormat: usedSources.size === 1 && usedSources.has(0),
     canCopy: false,
     disabled: !ready || pageCount === 0 || busy !== null,
-    render: () => renderPdf(files, recipe),
-    onSaved: history.markSaved,
+    // 圧縮して保存した先を、PDF の上書き先にしない（逆も）。圧縮のあいだは上書き先をこちらで持つ
+    handle: compressing ? (compressHandle ?? opened?.handle ?? null) : undefined,
+    render: () =>
+      compressing
+        ? withProgress((options) =>
+            compressPdf(rasterizer, recipe.pages, output.compress, `${stem}-compressed.pdf`, {
+              ...options,
+              metadata: { title: firstUsed?.info.title, author: firstUsed?.info.author },
+            })
+          )
+        : renderPdf(files, recipe),
+    onSaved: (_method, handle, rendered) => {
+      if (!compressing) return history.markSaved()
+      setActual({ key: compressKey, bytes: rendered.blob.size })
+      if (handle && handle !== opened?.handle) setCompressHandle(handle)
+    },
+    describeError: (error) => (isPdfError(error) ? m.pdfError[error.code] : null),
     onSourceReplaced: onReopen,
   })
+
+  // 画像の書き出しは複数のファイルなので、⌘S は保存ボタンの主の方法（フォルダ・ZIP）に向ける。
+  // useSave も ⌘S を拾うので、捕獲の段階で先に受けて preventDefault し、そちらには渡さない
+  const imagesSaveRef = useRef<() => void>(() => undefined)
+  useEffect(() => {
+    imagesSaveRef.current = () => {
+      if (!ready || busy !== null || target.pages.length === 0) return
+      void saveImages(planSaveMany({ canPickFolder: canPickFolder(), count: target.pages.length }).primary)
+    }
+  })
+  useEffect(() => {
+    if (!imagesMode) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!shouldHandle(event, 'mod+s', { inEditable: true })) return
+      event.preventDefault()
+      imagesSaveRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [imagesMode])
   useReportUnsaved(history.dirty, onDirtyChange)
 
   // 一覧にフォーカスがなくても、⌘A で全ページを選び、Delete で選んだページを消す
@@ -453,18 +578,22 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
                 <StepHint>{m.keepHint}</StepHint>
               </Step>
 
-              <Step index={3} title={t.stepEstimate}>
-                {pageCount === 0 ? (
-                  <p className="text-[11px] leading-normal text-destructive">{m.outputEmpty}</p>
-                ) : (
-                  <StepHint>
-                    {m.outputPages(pageCount)}
-                    {usedSources.size > 1 && <br />}
-                    {usedSources.size > 1 && m.outputMerged(usedSources.size)}
-                  </StepHint>
-                )}
-              </Step>
-              <Step index={4} title={m.stepSplit}>
+              <OutputSteps
+                settings={output}
+                onChange={setOutput}
+                pageCount={pageCount}
+                selectedCount={selected.length}
+                targetCount={target.pages.length}
+                mergedCount={usedSources.size}
+                originalBytes={originalBytes}
+                estimate={estimate}
+                estimating={estimating}
+                actualBytes={actual?.key === compressKey ? actual.bytes : null}
+                locked={locked}
+                opening={busy === 'opening'}
+                onOpenInImage={() => void openInImage()}
+              />
+              <Step index={5} title={m.stepSplit}>
                 <ToggleGroup
                   type="single"
                   variant="outline"
@@ -509,13 +638,24 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
                 />
                 <StepHint>{m.splitHint}</StepHint>
               </Step>
-
+              <ResetSettingsButton onClick={() => setOutput(DEFAULT_OUTPUT)} />
             </>
           )}
         </div>
 
-        <SidebarFooter progress={null}>
-          <SaveButton save={save} disabled={!ready || pageCount === 0 || busy !== null} />
+        <SidebarFooter progress={progress} onCancel={() => abortRef.current?.abort()}>
+          {imagesMode ? (
+            <SaveManyButton
+              count={target.pages.length}
+              disabled={locked || target.pages.length === 0}
+              primaryLabel={(method) =>
+                busy === 'exporting' ? m.exportingImages : m.saveImages(target.pages.length, method)
+              }
+              onSave={(method) => void saveImages(method)}
+            />
+          ) : (
+            <SaveButton save={save} disabled={!ready || pageCount === 0 || busy !== null} />
+          )}
         </SidebarFooter>
       </aside>
 

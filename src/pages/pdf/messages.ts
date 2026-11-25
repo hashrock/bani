@@ -1,9 +1,11 @@
 import { defineMessages } from '../../i18n/local'
-import type { PageRangeError, PdfErrorCode } from '../../media/pdf'
+import type { SaveManyMethod } from '../../core/save'
+import type { PageRangeError, PdfErrorCode, PdfImageFormat } from '../../media/pdf'
+import type { PdfOutputKind } from './output'
 
 const ja = {
   dropHere: 'PDF ファイルをここにドロップ',
-  dropHint: 'ページの並べ替え・回転・削除・抽出、ほかの PDF との結合、分割ができます。',
+  dropHint: 'ページの並べ替え・回転・削除・抽出、ほかの PDF との結合、分割、画像への書き出し、圧縮ができます。',
   stepSplit: '分割',
   factPages: 'ページ数',
   factSize: 'サイズ',
@@ -51,6 +53,51 @@ const ja = {
   outputEmpty: 'ページがありません。取り消す（⌘Z）か、PDF を追加してください。',
   outputMerged: (count: number) => `${count} つの PDF をまとめます`,
 
+  outputKind: '書き出すもの',
+  kindPdf: 'PDF',
+  kindImages: '画像',
+  kindCompress: '圧縮',
+  kindHint: {
+    pdf: 'ページの編集をそのまま PDF にします。画質は落ちません。',
+    images: 'ページを 1 枚ずつ画像ファイルにして保存します。',
+    compress: 'ページを JPEG の画像に描き直して、小さな PDF に組み直します。',
+  } satisfies Record<PdfOutputKind, string>,
+  scopeLabel: '書き出すページ',
+  scopeAll: (count: number) => `すべて（${count}）`,
+  scopeSelected: (count: number) => `選んだページ（${count}）`,
+  imageFormat: '形式',
+  formatHint: {
+    png: '劣化しません。文字や図の多いページ向けです。',
+    jpeg: '写真やスキャンしたページを小さく保存できます。',
+  } satisfies Record<PdfImageFormat, string>,
+  qualityLabel: '画質',
+  resolutionLabel: '解像度',
+  resolutionDpi: 'DPI',
+  resolutionLongEdge: '長い辺の px',
+  dpiHint: '72 は画面で見る用、150 は資料、300 は印刷向けです。',
+  longEdgeHint: 'ページの長い辺をこの長さにそろえます。',
+  openInImage: 'このページを画像の画面で開く',
+  openingInImage: '画像にしています…',
+  openInImageHint: '1 ページだけ選ぶと、いまの形式と解像度で画像にして、画像の画面で開きます。',
+  compressWarning: '文字や図形もすべて画像になります。保存した PDF では文字の選択・検索・コピーやリンクができません。',
+  compressDpiHint: '低いほど小さくなり、細かい文字はつぶれます。110〜150 が目安です。',
+  compressEstimateHint: '何ページかを実際に描いて見込んでいます。保存すると実際の大きさを出します。',
+  compressLarger: '元より大きくなりそうです。文字や図形だけの PDF は、画像にするとかえって大きくなります。解像度か画質を下げるか、PDF のまま保存してください。',
+  estimateFiles: 'ファイル',
+  imageCount: (count: number) => `${count} 枚`,
+  estimateImageSize: '画像の大きさ（最初のページ）',
+  estimateOriginal: '元のサイズ',
+  estimateCompressed: '圧縮後の見込み',
+  estimateActual: '保存したサイズ',
+  saveImages: (count: number, method: SaveManyMethod) =>
+    method === 'folder'
+      ? `${count} 枚の画像をフォルダに保存`
+      : method === 'zip'
+        ? `${count} 枚の画像を ZIP で保存`
+        : `${count} 枚の画像をダウンロード`,
+  exportingImages: '書き出し中…',
+  exportFailed: (message: string) => `書き出せませんでした: ${message}`,
+
   pageLabel: (position: number) => `${position} ページ目`,
   pageOrigin: (name: string, page: number) => `${name} の ${page} ページ`,
   pagesLabel: 'ページ一覧',
@@ -85,7 +132,7 @@ type PdfMessages = typeof ja
 
 const en: PdfMessages = {
   dropHere: 'Drop a PDF file here',
-  dropHint: 'Reorder, rotate, delete and extract pages, merge with other PDFs, or split.',
+  dropHint: 'Reorder, rotate, delete and extract pages, merge with other PDFs, split, export as images, or compress.',
   stepSplit: 'Split',
   factPages: 'Pages',
   factSize: 'Size',
@@ -132,6 +179,50 @@ const en: PdfMessages = {
   outputPages: (count) => `Writes a PDF with ${count} ${count === 1 ? 'page' : 'pages'}`,
   outputEmpty: 'No pages left. Undo (⌘Z) or add a PDF.',
   outputMerged: (count) => `Merges ${count} PDFs`,
+
+  outputKind: 'Output',
+  kindPdf: 'PDF',
+  kindImages: 'Images',
+  kindCompress: 'Compress',
+  kindHint: {
+    pdf: 'Writes the edited pages as a PDF. No quality loss.',
+    images: 'Saves every page as its own image file.',
+    compress: 'Redraws each page as a JPEG image and rebuilds a smaller PDF.',
+  },
+  scopeLabel: 'Pages to export',
+  scopeAll: (count) => `All (${count})`,
+  scopeSelected: (count) => `Selected (${count})`,
+  imageFormat: 'Format',
+  formatHint: {
+    png: 'Lossless. Best for pages with text and drawings.',
+    jpeg: 'Smaller files for photos and scanned pages.',
+  },
+  qualityLabel: 'Quality',
+  resolutionLabel: 'Resolution',
+  resolutionDpi: 'DPI',
+  resolutionLongEdge: 'Long edge px',
+  dpiHint: '72 for screens, 150 for documents, 300 for print.',
+  longEdgeHint: 'Scales each page so its long edge has this length.',
+  openInImage: 'Open this page in the image editor',
+  openingInImage: 'Rendering…',
+  openInImageHint: 'Select a single page to render it with the current format and resolution and open it in the image editor.',
+  compressWarning:
+    'All text and drawings become images. In the saved PDF, text cannot be selected, searched or copied, and links stop working.',
+  compressDpiHint: 'Lower is smaller but small text gets blurry. 110–150 is a good start.',
+  compressEstimateHint: 'Estimated by rendering a few pages. Saving shows the actual size.',
+  compressLarger: 'This would be larger than the original. PDFs made of text and shapes grow when turned into images. Lower the resolution or quality, or save as a plain PDF.',
+  estimateFiles: 'Files',
+  imageCount: (count) => `${count} ${count === 1 ? 'image' : 'images'}`,
+  estimateImageSize: 'Image size (first page)',
+  estimateOriginal: 'Original size',
+  estimateCompressed: 'Estimated after compression',
+  estimateActual: 'Saved size',
+  saveImages: (count, method) => {
+    const images = `${count} ${count === 1 ? 'image' : 'images'}`
+    return method === 'folder' ? `Save ${images} to folder` : method === 'zip' ? `Save ${images} as ZIP` : `Download ${images}`
+  },
+  exportingImages: 'Exporting…',
+  exportFailed: (message) => `Could not export: ${message}`,
 
   pageLabel: (position) => `Page ${position}`,
   pageOrigin: (name, page) => `${name}, page ${page}`,

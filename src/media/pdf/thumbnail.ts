@@ -9,6 +9,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { PdfError } from './errors'
 import { normalizeRotation } from './recipe'
+import { encoderQuality, IMAGE_MIME, rasterSize, type PdfImageSettings } from './raster'
 
 // 日本語などの PDF は定義済みの CMap を参照することが多く、これがないと文字が描かれない。
 // 小さいファイルが data URL として JS に埋め込まれると最初に読む JS が膨らむので、no-inline で必ずファイルにする
@@ -66,9 +67,29 @@ export interface PdfThumbnailer {
    * rotate は元のページの回転に足す角度（レシピの rotate をそのまま渡せる）
    */
   render(pageIndex: number, maxSize: number, rotate?: number): Promise<Blob>
+  /**
+   * 書き出し用に、決めた解像度・形式で描く。ページの見た目の大きさ（pt, 回転後）も返すので、
+   * 画像を並べ直した PDF のページの大きさに使える。canvas の上限を超える大きさは縮めて描く
+   */
+  renderImage(pageIndex: number, settings: PdfImageSettings, rotate?: number): Promise<RenderedPageImage>
   /** ワーカー側の文書を手放す。使い終わったら必ず呼ぶ */
   destroy(): Promise<void>
 }
+
+export interface RenderedPageImage {
+  blob: Blob
+  /** 画像の大きさ（px） */
+  width: number
+  height: number
+  /** ページの見た目の大きさ（pt, 回転後） */
+  pointWidth: number
+  pointHeight: number
+}
+
+const toBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
+  new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('ページを画像にできません'))), type, quality)
+  )
 
 /** 1 つの PDF を開いたままにして、ページを順に描く。一覧のサムネイルはこちらを使う */
 export async function openPdfThumbnailer(file: Blob): Promise<PdfThumbnailer> {
@@ -89,30 +110,39 @@ export async function openPdfThumbnailer(file: Blob): Promise<PdfThumbnailer> {
     throw new PdfError('invalid', 'PDF として読めません', { cause })
   }
 
+  const renderImage = async (
+    pageIndex: number,
+    settings: PdfImageSettings,
+    rotate = 0
+  ): Promise<RenderedPageImage> => {
+    const page = await document.getPage(pageIndex + 1)
+    const canvas = globalThis.document.createElement('canvas')
+    try {
+      const rotation = normalizeRotation(page.rotate + rotate)
+      const natural = page.getViewport({ scale: 1, rotation })
+      const size = rasterSize(natural, settings.resolution)
+      const viewport = page.getViewport({ scale: size.scale, rotation })
+      canvas.width = size.width
+      canvas.height = size.height
+      // 背景は pdf.js が白で塗る（JPEG に透明はなく、PNG でも紙の白のほうが自然）
+      await page.render({ canvas, viewport }).promise
+      const blob = await toBlob(canvas, IMAGE_MIME[settings.format], encoderQuality(settings.quality))
+      return { blob, width: size.width, height: size.height, pointWidth: natural.width, pointHeight: natural.height }
+    } finally {
+      // Safari は使い終えた canvas の画素をすぐには手放さないので、大きさを 0 にして返す
+      canvas.width = 0
+      canvas.height = 0
+      page.cleanup()
+    }
+  }
+
   return {
     pageCount: document.numPages,
     async render(pageIndex, maxSize, rotate = 0) {
-      const page = await document.getPage(pageIndex + 1)
-      try {
-        const rotation = normalizeRotation(page.rotate + rotate)
-        const natural = page.getViewport({ scale: 1, rotation })
-        const scale = maxSize / Math.max(natural.width, natural.height)
-        const viewport = page.getViewport({ scale, rotation })
-        const canvas = globalThis.document.createElement('canvas')
-        canvas.width = Math.max(1, Math.round(viewport.width))
-        canvas.height = Math.max(1, Math.round(viewport.height))
-        await page.render({ canvas, viewport }).promise
-        return await new Promise<Blob>((resolve, reject) =>
-          canvas.toBlob(
-            (blob) => (blob ? resolve(blob) : reject(new Error('サムネイルを作れません'))),
-            'image/jpeg',
-            0.85
-          )
-        )
-      } finally {
-        page.cleanup()
-      }
+      const settings = { format: 'jpeg', quality: 85, resolution: { kind: 'longEdge', pixels: maxSize } } as const
+      return (await renderImage(pageIndex, settings, rotate)).blob
     },
+    renderImage,
     destroy: () => task.destroy(),
   }
 }
