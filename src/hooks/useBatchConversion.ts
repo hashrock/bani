@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { saveFileAs } from '../core/save'
+import { toast } from 'sonner'
+import { createFolderWriter, downloadFiles, pickSaveFolder, saveFileAs, zipFiles } from '../core/save'
+import type { SaveManyMethod } from '../core/save'
+import { savedFilesMessage } from '../core/useSave'
 import { useI18n } from '../i18n/context'
 import { useLocalMessages } from '../i18n/local'
 import type { RenderedFile } from '../media/types'
@@ -10,27 +13,18 @@ import { plannedOutputName } from '../pages/convert/outputs'
 import { batchReducer, initialBatchState } from '../state/batchConversion'
 import type { BatchEntry, BatchInput } from '../state/batchConversion'
 import { isAbortError } from '../utils/abort'
-import { pickOutputDirectory, writeFileToDirectory } from '../utils/fileSystem'
-
-/** 保存先。フォルダは showDirectoryPicker が使えるときだけ選べる */
-export type SaveTarget = 'folder' | 'zip'
-
-export const canPickFolder = (): boolean =>
-  typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'
 
 export interface BatchConversion {
   entries: BatchEntry[]
   running: boolean
-  /** ZIP にまとめている最中か（変換は終わっている） */
-  zipping: boolean
-  /** 一覧の上に出す、ラン全体の失敗（保存先を選べなかったなど） */
-  error: string
-  /** まとめた ZIP。保存をやめたときに保存し直せるよう、次のランまで持っておく */
+  /** 全体の進み具合（0〜100）。走っていなければ null */
+  progress: number | null
+  /** まとめた ZIP。保存先の選択をやめたときに保存し直せるよう、次のランまで持っておく */
   archive: RenderedFile | null
   add: (files: BatchInput[]) => void
   remove: (index: number) => void
   clear: () => void
-  run: (target: SaveTarget) => Promise<void>
+  run: (method: SaveManyMethod) => Promise<void>
   cancel: () => void
   saveArchive: () => Promise<void>
 }
@@ -41,13 +35,16 @@ function archiveName(now = new Date()): string {
   return `bani-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.zip`
 }
 
+/**
+ * 一括変換の実行。保存は複数のファイルの保存（src/core/save.ts）と同じ 3 通り:
+ * フォルダへ 1 件ずつ書く・1 つの ZIP にまとめる・1 つずつダウンロード。
+ * 結果は通知で知らせ、1 件ごとの失敗は一覧に出す。
+ */
 export function useBatchConversion(settings: ConvertSettings): BatchConversion {
   const { t } = useI18n()
   const m = useLocalMessages(convertMessages)
   const [entries, dispatch] = useReducer(batchReducer, initialBatchState)
   const [running, setRunning] = useState(false)
-  const [zipping, setZipping] = useState(false)
-  const [error, setError] = useState('')
   const [archive, setArchive] = useState<RenderedFile | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -61,50 +58,43 @@ export function useBatchConversion(settings: ConvertSettings): BatchConversion {
   const remove = useCallback((index: number) => dispatch({ type: 'remove', index }), [])
 
   const clear = useCallback(() => {
-    setError('')
     setArchive(null)
     dispatch({ type: 'clear' })
   }, [])
 
   /** ZIP を保存する。保存先の選択をやめても、ZIP は手元に残す */
-  const save = useCallback(
-    async (zip: RenderedFile) => {
+  const saveZip = useCallback(
+    async (zip: RenderedFile, count: number) => {
       try {
-        await saveFileAs(zip.blob, zip.filename)
-        setError('')
+        const handle = await saveFileAs(zip.blob, zip.filename)
+        toast(savedFilesMessage(t, { method: 'zip', count, target: handle?.name ?? zip.filename, downloaded: !handle }))
       } catch (err) {
-        setError(
-          isAbortError(err)
-            ? m.zipCancelled
-            : m.zipFailed(err instanceof Error ? err.message : String(err))
-        )
+        if (isAbortError(err)) {
+          toast(m.zipCancelled)
+          return
+        }
+        toast.error(t.saveFailed(err instanceof Error ? err.message : String(err)))
       }
     },
-    [m]
+    [t, m]
   )
 
   const run = useCallback(
-    async (target: SaveTarget) => {
+    async (method: SaveManyMethod) => {
       if (entries.length === 0) return
-      setError('')
       setArchive(null)
 
       // フォルダは先に選ばせる。変換のあとでは操作の直後でなくなり、ブラウザに選択画面を止められる
       let directory: FileSystemDirectoryHandle | null = null
-      if (target === 'folder') {
+      if (method === 'folder') {
         try {
-          directory = await pickOutputDirectory()
+          directory = await pickSaveFolder()
         } catch (err) {
-          setError(
-            isAbortError(err)
-              ? t.errorFolderCancelled
-              : err instanceof Error
-                ? err.message
-                : t.errorFolderFailed
-          )
+          if (!isAbortError(err)) toast.error(t.saveFailed(err instanceof Error ? err.message : String(err)))
           return
         }
       }
+      const writer = directory ? createFolderWriter(directory) : null
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -115,6 +105,7 @@ export function useBatchConversion(settings: ConvertSettings): BatchConversion {
         entries.map((entry) => plannedOutputName(entry.file, entry.kind, settings))
       )
       const collected: RenderedFile[] = []
+      let writtenCount = 0
       dispatch({ type: 'requeue' })
 
       try {
@@ -133,12 +124,12 @@ export function useBatchConversion(settings: ConvertSettings): BatchConversion {
               dispatch({ type: 'requeue', index })
               break
             }
-            if (directory) {
-              await writeFileToDirectory(directory, names[index], await blob.arrayBuffer())
-            } else {
-              collected.push({ blob, filename: names[index] })
-            }
-            dispatch({ type: 'complete', index, convertedSize: blob.size, outputName: names[index] })
+            const rendered = { blob, filename: names[index] }
+            // フォルダには 1 件ずつ書く（同じ名前のファイルが既にあれば、上書きせず番号を振る）
+            const written = writer ? await writer.write(rendered) : names[index]
+            if (writer) writtenCount += 1
+            else collected.push(rendered)
+            dispatch({ type: 'complete', index, convertedSize: blob.size, outputName: written })
           } catch (err) {
             if (isAbortError(err) || controller.signal.aborted) {
               dispatch({ type: 'requeue', index })
@@ -154,29 +145,32 @@ export function useBatchConversion(settings: ConvertSettings): BatchConversion {
           }
         }
 
-        if (target === 'zip' && collected.length > 0) {
+        if (directory) {
+          if (writtenCount > 0) {
+            toast(savedFilesMessage(t, { method: 'folder', count: writtenCount, target: directory.name, downloaded: false }))
+          }
+        } else if (collected.length === 0) {
+          if (!controller.signal.aborted) toast.error(m.nothingToSave)
+        } else if (method === 'zip') {
           // 中止したときも、変換し終えたぶんは ZIP にしておき、保存するかは利用者に任せる
-          setZipping(true)
-          const { zipRenderedFiles } = await import('../media/archive')
-          const zip = await zipRenderedFiles(collected, archiveName())
+          const zip = await zipFiles(collected, archiveName())
           setArchive(zip)
-          setZipping(false)
-          if (!controller.signal.aborted) await save(zip)
-        } else if (target === 'zip' && !controller.signal.aborted) {
-          setError(m.nothingToZip)
+          if (!controller.signal.aborted) await saveZip(zip, collected.length)
+        } else if (!controller.signal.aborted) {
+          await downloadFiles(collected)
+          toast(savedFilesMessage(t, { method: 'each', count: collected.length, target: null, downloaded: true }))
         }
       } catch (err) {
         if (!isAbortError(err)) {
           console.error('Batch conversion failed:', err)
-          setError(err instanceof Error ? err.message : t.errorConversionFailed)
+          toast.error(err instanceof Error ? err.message : t.errorConversionFailed)
         }
       } finally {
         setRunning(false)
-        setZipping(false)
         if (abortRef.current === controller) abortRef.current = null
       }
     },
-    [entries, settings, t, m, save]
+    [entries, settings, t, m, saveZip]
   )
 
   const cancel = useCallback(() => {
@@ -185,8 +179,24 @@ export function useBatchConversion(settings: ConvertSettings): BatchConversion {
   }, [])
 
   const saveArchive = useCallback(async () => {
-    if (archive) await save(archive)
-  }, [archive, save])
+    if (archive) await saveZip(archive, entries.filter((entry) => entry.status === 'completed').length)
+  }, [archive, saveZip, entries])
 
-  return { entries, running, zipping, error, archive, add, remove, clear, run, cancel, saveArchive }
+  // 全体の進み具合は、終わった件と走っている件の進み具合を合わせて数える
+  const progress = running
+    ? entries.length === 0
+      ? 0
+      : entries.reduce(
+          (sum, entry) =>
+            sum +
+            (entry.status === 'completed' || entry.status === 'error'
+              ? 100
+              : entry.status === 'converting'
+                ? entry.progress
+                : 0),
+          0
+        ) / entries.length
+    : null
+
+  return { entries, running, progress, archive, add, remove, clear, run, cancel, saveArchive }
 }

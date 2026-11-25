@@ -7,9 +7,9 @@ import type { ImageOutput } from '../../media/image/output'
 import { MAX_DIMENSION, createImageRecipe } from '../../media/image/recipe'
 import type { ImageRecipe } from '../../media/image/recipe'
 import type { TextEncodingName } from '../../media/text/encoding'
+import { DEFAULT_VIDEO_OUTPUT } from '../../media/video/output'
+import type { VideoOutput } from '../../media/video/types'
 import type { BomSetting, NewlineSetting } from '../../media/text/recipe'
-import type { ConversionSettings } from '../../types'
-import { DEFAULT_SETTINGS } from '../../types'
 import type { ConvertKind } from './kinds'
 import { splitExtension } from './outputNames'
 
@@ -29,14 +29,14 @@ export interface TextBatchOutput {
 
 /** 種類ごとの出力設定。画面では種類ごとに別々に持ち、書き出しのときにまとめて渡す */
 export interface ConvertSettings {
-  video: ConversionSettings
+  video: VideoOutput
   audio: AudioOutput
   image: ImageBatchOutput
   text: TextBatchOutput
 }
 
 export const DEFAULT_CONVERT_SETTINGS: ConvertSettings = {
-  video: DEFAULT_SETTINGS,
+  video: DEFAULT_VIDEO_OUTPUT,
   audio: createAudioOutput('mp3'),
   image: { output: createImageOutput('webp'), maxSize: null },
   text: { encoding: 'keep', newline: 'keep', bom: 'keep' },
