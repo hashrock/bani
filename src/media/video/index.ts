@@ -11,9 +11,13 @@ export type {
   VideoOutput,
   VideoRecipe,
   VideoRotation,
+  VideoSubtitleMode,
+  VideoSubtitles,
 } from './types'
 export {
+  MAX_SUBTITLE_OFFSET,
   MIN_CROP_SIZE,
+  VIDEO_RECIPE_VERSION,
   applyVideoEdit,
   clampCrop,
   createVideoRecipe,
@@ -21,9 +25,33 @@ export {
   encodeTrim,
   isIdentityRecipe,
   isTransformed,
+  restoreVideoRecipe,
   rotatedCrop,
   sourceRect,
 } from './recipe'
+export {
+  MAX_VIDEO_SPEED,
+  MIN_VIDEO_SPEED,
+  VIDEO_SPEED_PRESETS,
+  activeCues,
+  clampSpeed,
+  cuesForOutput,
+  effectiveSubtitleMode,
+  outputDuration,
+  outputToSourceTime,
+  sourceToOutputTime,
+} from './timing'
+export {
+  SUBTITLE_FONT_FAMILY,
+  breakLines,
+  joinCues,
+  layoutSubtitle,
+  plainCueText,
+  subtitleStyle,
+} from './subtitleLayout'
+export type { SubtitleStyle } from './subtitleLayout'
+export { isSubtitleFile, loadSubtitleFile, mayBeSubtitle, parseSubtitleText } from './subtitleFile'
+export type { LoadedSubtitles } from './subtitleFile'
 export type { RotatedCrop, VideoSize } from './recipe'
 export {
   DEFAULT_GIF_FPS,

@@ -1,9 +1,13 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { useReportUnsaved } from '../../app/leaveGuard'
+import { useLocalDrop } from '../../app/useLocalDrop'
 import { BottomBar } from '../../components/BottomBar'
 import { FileUpload } from '../../components/FileUpload'
 import { Sidebar } from '../../components/Sidebar'
 import { VideoPreview } from '../../components/VideoPreview'
+import { pickFiles } from '../../core/opened'
 import { useRememberedChoice } from '../../core/usePersistentState'
 import { useSave } from '../../core/useSave'
 import { useConversionJob } from '../../hooks/useConversionJob'
@@ -11,7 +15,15 @@ import { useMediaInfo } from '../../hooks/useMediaInfo'
 import { useSizeEstimate } from '../../hooks/useSizeEstimate'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
-import { DEFAULT_VIDEO_OUTPUT, defaultVideoOutput, editedSize } from '../../media/video'
+import {
+  DEFAULT_VIDEO_OUTPUT,
+  defaultVideoOutput,
+  editedSize,
+  isSubtitleFile,
+  loadSubtitleFile,
+  mayBeSubtitle,
+  outputDuration,
+} from '../../media/video'
 import type { VideoOutput, VideoRecipe } from '../../media/video'
 import { createAbortError } from '../../utils/abort'
 import type { EditPageProps } from '../types'
@@ -19,6 +31,7 @@ import { CropOverlay } from './CropOverlay'
 import { EditStep } from './EditStep'
 import { ExportStep } from './ExportStep'
 import { videoMessages } from './messages'
+import { SubtitleOverlay } from './SubtitleOverlay'
 import { useVideoRecipe } from './useVideoRecipe'
 
 /** 変換結果がいまのレシピと出力設定で作られたものかを比べるための鍵 */
@@ -83,6 +96,47 @@ export function VideoEditPage({ opened, isDragging, onFiles, onReopen, onDirtyCh
 
   const size = media ? editedSize(media, recipe) : null
 
+  // 速さはプレビューの再生にも映す（音の高さの扱いも書き出しと同じにする）
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.defaultPlaybackRate = recipe.speed
+    video.playbackRate = recipe.speed
+    video.preservesPitch = recipe.preservePitch
+  }, [recipe.speed, recipe.preservePitch, file])
+
+  /** 字幕ファイルを読んでレシピに入れる（1 つだけ。入れ替えは取り消せる） */
+  const addSubtitles = async (subtitleFile: File) => {
+    try {
+      const loaded = await loadSubtitleFile(subtitleFile)
+      if (loaded.cues.length === 0) {
+        toast.error(m.subtitlesEmpty(subtitleFile.name))
+        return
+      }
+      edits.edit({ type: 'subtitles', subtitles: { name: loaded.name, cues: loaded.cues } })
+      if (loaded.errors.length > 0) toast.warning(m.subtitlesSkipped(loaded.errors.length))
+    } catch (error) {
+      console.error('Subtitle load failed:', error)
+      toast.error(m.subtitlesFailed(error instanceof Error ? error.message : String(error)))
+    }
+  }
+
+  const pickSubtitles = async () => {
+    const [picked] = await pickFiles({ accept: '.srt,.vtt,text/vtt,application/x-subrip' })
+    if (picked) await addSubtitles(picked.file)
+  }
+
+  // 動画の上に落とした字幕は、開き直さずに足す。.srt は種類が空で届くことが多く、ドラッグ中は名前が読めないので
+  // 空の種類も受け取り、落とされてから名前で選り分ける。字幕でないものが混ざっていたら、いつもどおり開き直す
+  const subtitleDrop = useLocalDrop({
+    enabled: !!file && !!media,
+    accepts: (items) => items.length > 0 && items.every(mayBeSubtitle),
+    onDrop: (dropped) => {
+      if (dropped.every(({ file: item }) => isSubtitleFile(item))) void addSubtitles(dropped[0].file)
+      else onFiles(dropped)
+    },
+  })
+
   // 編集はいま映している元の映像に対して行うので、結果を見ていたら入力側に戻す
   const showSource = () => {
     if (showAfter) setShowAfter(false)
@@ -95,7 +149,8 @@ export function VideoEditPage({ opened, isDragging, onFiles, onReopen, onDirtyCh
         media={media}
         output={output}
         onOutputChange={setOutput}
-        trim={recipe.trim}
+        // 見込みと目標サイズは書き出す長さで考えるので、速さで縮めた区間を渡す
+        trim={{ start: 0, end: outputDuration(recipe) }}
         editedSize={size}
         renderEditStep={(index) => (
           <EditStep
@@ -107,6 +162,9 @@ export function VideoEditPage({ opened, isDragging, onFiles, onReopen, onDirtyCh
               showSource()
               setCropping(next)
             }}
+            format={output.format}
+            onAddSubtitles={() => void pickSubtitles()}
+            videoRef={videoRef}
           />
         )}
         renderExportStep={(index) =>
@@ -128,7 +186,7 @@ export function VideoEditPage({ opened, isDragging, onFiles, onReopen, onDirtyCh
       />
 
       <div className="workspace">
-        <div className="stage">
+        <div className={cn('stage', subtitleDrop.over && 'drop-target-active')} {...subtitleDrop.handlers}>
           {file ? (
             <VideoPreview
               file={file}
@@ -137,15 +195,18 @@ export function VideoEditPage({ opened, isDragging, onFiles, onReopen, onDirtyCh
               dimensions={media?.dimensions ?? null}
               renderOverlay={(scale) =>
                 media?.dimensions && (
-                  <CropOverlay
-                    recipe={recipe}
-                    size={media.dimensions}
-                    scale={scale}
-                    editing={cropping && !showAfter}
-                    onChange={(rect) => edits.preview({ type: 'crop', rect })}
-                    onCommit={edits.commit}
-                    label={m.cropArea}
-                  />
+                  <>
+                    <CropOverlay
+                      recipe={recipe}
+                      size={media.dimensions}
+                      scale={scale}
+                      editing={cropping && !showAfter}
+                      onChange={(rect) => edits.preview({ type: 'crop', rect })}
+                      onCommit={edits.commit}
+                      label={m.cropArea}
+                    />
+                    <SubtitleOverlay recipe={recipe} size={media.dimensions} scale={scale} videoRef={videoRef} />
+                  </>
                 )
               }
               result={job.result}
@@ -153,7 +214,8 @@ export function VideoEditPage({ opened, isDragging, onFiles, onReopen, onDirtyCh
               progress={job.progress}
               showAfter={showAfter}
               error={job.error}
-              isDragging={isDragging}
+              // 字幕を足せる場所の上では、開き直しの枠ではなく足す枠だけを出す
+              isDragging={isDragging && !subtitleDrop.over}
             />
           ) : (
             <FileUpload

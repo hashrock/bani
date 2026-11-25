@@ -1,4 +1,5 @@
 import { trimDuration } from '../../state/trim'
+import { outputDuration } from './timing'
 import { DEFAULT_GIF_FPS, computeFrameDrawPlan, targetSizeEstimate } from './output'
 import { renderVideo } from './render'
 import type { VideoInfo, VideoOutput, VideoRecipe } from './types'
@@ -27,16 +28,20 @@ export async function estimateVideoSize({
   const { start, end } = recipe.trim
   const duration = trimDuration(recipe.trim)
   if (duration === 0) return 0
+  // 大きさは書き出す長さで決まる（2 倍速なら半分の長さ）
+  const played = outputDuration(recipe)
 
-  if (output.format === 'gif') return estimateGifSize(recipe, output, info, duration)
+  if (output.format === 'gif') return estimateGifSize(recipe, output, info, played)
 
   // 目標サイズのビットレートが効くときは、エンコーダはその平均に寄せる。先頭 1 秒は最初のキーフレームと
   // レート制御の立ち上がりで重く、引き伸ばすと大きく見積もりすぎるので、ビットレートから求める
-  const targeted = targetSizeEstimate(output, duration, !!info.audioCodec && !recipe.muted)
+  const targeted = targetSizeEstimate(output, played, !!info.audioCodec && !recipe.muted)
   if (targeted !== null) return targeted
 
-  // 先頭の一部だけを実際にエンコードし、その結果を区間全体へ引き伸ばす
-  const sampleEnd = Math.min(start + SAMPLE_DURATION, end)
+  // 先頭の一部だけを実際にエンコードし、その結果を区間全体へ引き伸ばす。
+  // 試すのは書き出しで SAMPLE_DURATION 秒になる分（速いほど元の長い区間を使う）。
+  // 元の長さの比で引き伸ばせば、速さによらず「書き出し 1 秒あたりの大きさ × 書き出しの長さ」になる
+  const sampleEnd = Math.min(start + SAMPLE_DURATION * recipe.speed, end)
   const sampleDuration = sampleEnd - start
   if (sampleDuration <= 0) return 0
 
@@ -50,7 +55,7 @@ export async function estimateVideoSize({
   return Math.round((blob.size / sampleDuration) * duration)
 }
 
-/** GIF は部分エンコードしても全体の傾向を映さないため、解像度とフレーム数から概算する */
+/** GIF は部分エンコードしても全体の傾向を映さないため、解像度とフレーム数から概算する。duration は書き出しの長さ */
 export function estimateGifSize(
   recipe: VideoRecipe,
   output: VideoOutput,

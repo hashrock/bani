@@ -5,6 +5,8 @@ import type { RenderOptions, RenderedFile } from '../types'
 import { DEFAULT_GIF_FPS, VIDEO_MIME_TYPES, computeFrameDrawPlan, videoFilename } from './output'
 import { drawFrame } from './frame'
 import { createVideoRecipe } from './recipe'
+import { drawSubtitlesAt } from './subtitleDraw'
+import { cuesForOutput } from './timing'
 import type { VideoOutput, VideoRecipe } from './types'
 
 const GIF_WORKERS = 2
@@ -48,7 +50,11 @@ export async function encodeGif(
     const start = trim?.start ?? 0
     const end = trim?.end ?? video.duration
     const fps = output.fps ?? DEFAULT_GIF_FPS
-    const totalFrames = Math.max(1, Math.ceil((end - start) * fps))
+    // 速さを変えたら、書き出しの 1 フレームごとに元の時間を speed 倍進める（GIF の再生速度はフレームの間隔で決まる）
+    const speed = recipe?.speed ?? 1
+    const totalFrames = Math.max(1, Math.ceil(((end - start) / speed) * fps))
+    // GIF には字幕トラックがないので、入れ方によらず焼き込む
+    const cues = recipe?.subtitles ? cuesForOutput(recipe.subtitles, { start, end }, speed) : []
     // 寸法は実際にデコードした映像から取る（レシピの座標と同じ、向きを反映した見た目どおりの寸法）
     const plan = computeFrameDrawPlan(
       { dimensions: { width: video.videoWidth, height: video.videoHeight } },
@@ -75,11 +81,12 @@ export async function encodeGif(
     })
 
     for (let frame = 0; frame < totalFrames; frame++) {
-      const time = start + frame / fps
+      const time = start + (frame / fps) * speed
       if (time > end) break
 
       await seek(video, time, signal)
       drawFrame(context, video, plan)
+      if (cues.length > 0) drawSubtitlesAt(context, cues, (frame / fps) * 1000, width, height)
       gif.addFrame(context, { copy: true, delay: 1000 / fps })
 
       onProgress?.((frame / totalFrames) * FRAME_EXTRACTION_SHARE)

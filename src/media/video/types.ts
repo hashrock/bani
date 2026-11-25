@@ -1,4 +1,5 @@
 import type { MetadataTags } from 'mediabunny'
+import type { SubtitleCue } from '../text/subtitles'
 import type { TrimAction } from '../../state/trim'
 import type { Trim } from '../../types'
 
@@ -33,7 +34,10 @@ export type VideoRotation = 0 | 90 | 180 | 270
  * 3. rotation: 時計回りに 0/90/180/270 度
  * 4. flipH / flipV: 回転後の見た目に対して左右・上下を入れ替える
  * 5. muted: 音声トラックを捨てる
+ * 6. speed: 区間を 1 / speed の長さにする（映像はタイムスタンプを書き換え、音声は伸縮する）
+ * 7. subtitles: 元の時間軸の字幕を、区間と speed に合わせて書き出しの時間軸に直して入れる（src/media/video/timing.ts）
  * 解像度（拡大縮小）は出力設定（VideoOutput）側で、回転後の寸法に対して効く。
+ * 字幕の焼き込みは拡大縮小のあとの絵に描くので、文字の大きさは出力の寸法に対して決まる。
  */
 export interface VideoRecipe {
   readonly trim: Readonly<Trim>
@@ -42,6 +46,24 @@ export interface VideoRecipe {
   readonly flipH: boolean
   readonly flipV: boolean
   readonly muted: boolean
+  /** 再生速度。MIN_VIDEO_SPEED〜MAX_VIDEO_SPEED（src/media/video/timing.ts） */
+  readonly speed: number
+  /** 速さを変えても音の高さを保つか。false なら単純に詰める（早回しの声になる） */
+  readonly preservePitch: boolean
+  readonly subtitles: VideoSubtitles | null
+}
+
+/** 字幕を動画に入れるやり方。embed は字幕トラックとして同梱（入りきらない形式では使えない）、burn は絵に描き込む */
+export type VideoSubtitleMode = 'embed' | 'burn'
+
+/** 動画に添える字幕。時刻は元の動画の時間軸（ミリ秒）で持ち、ずらしは offset に分けて持つ */
+export interface VideoSubtitles {
+  /** 読み込んだファイルの名前（表示用） */
+  readonly name: string
+  readonly cues: readonly SubtitleCue[]
+  /** 全体をずらすミリ秒（正なら遅らせる） */
+  readonly offset: number
+  readonly mode: VideoSubtitleMode
 }
 
 export type VideoEdit =
@@ -54,6 +76,13 @@ export type VideoEdit =
   /** 見た目の上下を入れ替える */
   | { type: 'flipV' }
   | { type: 'mute'; muted: boolean }
+  | { type: 'speed'; speed: number }
+  | { type: 'preservePitch'; preserve: boolean }
+  /** 字幕を入れ替える（null で外す）。ずらしは 0 に戻し、入れ方は前のものを引き継ぐ */
+  | { type: 'subtitles'; subtitles: Pick<VideoSubtitles, 'name' | 'cues'> | null }
+  /** 字幕のずらしを ms にする */
+  | { type: 'subtitleOffset'; offset: number }
+  | { type: 'subtitleMode'; mode: VideoSubtitleMode }
   | { type: 'reset' }
 
 export type VideoFormat = 'mp4' | 'webm' | 'gif'
