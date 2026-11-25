@@ -37,7 +37,7 @@ export function readPrecache(swSource: string): string[] {
  * 使う人が限られるのにインストールのたびに全員へ配ると重いので、開いたときに取りに行く。
  * ファイル名はビルドで `名前-ハッシュ.拡張子` になるので、名前の部分で見分ける。
  */
-const LAZY = /^assets\/(libheif|heifLoader|libarchive|libarchiveWorker)-[\w-]+\.(wasm|js)$/
+const LAZY = /^assets\/(libheif|heifLoader|heifWorker|libarchive|libarchiveWorker)-[\w-]+\.(wasm|js)$/
 
 export const isLazyAsset = (fileName: string) => LAZY.test(fileName)
 

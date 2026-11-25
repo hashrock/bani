@@ -1,7 +1,6 @@
-import { deflateSync, gzipSync } from 'fflate'
 import type { RenderedFile, RenderOptions } from '../types'
 import { throwIfAborted } from '../../utils/abort'
-import { createCrc32 } from './crc32'
+import { compress } from './compress'
 import { ArchiveError } from './errors'
 import { isAlreadyCompressed } from './mime'
 import { sanitizeSegment } from './names'
@@ -13,6 +12,7 @@ import { TAR_END, tarFileHeader, tarPadding } from './tar'
  * （0.8.2・0.8.3 で確認。一括の deflateSync と展開側は問題ない）ので使わない。
  * ZIP の入れ物は自前で組み、圧縮は小さいファイルなら deflateSync（レベル指定が効く）、
  * 大きいファイルはメモリに載せきらないようブラウザ組み込みの CompressionStream（レベルは既定のみ）で行う。
+ * どちらも画面を止めないよう Worker で行う（compress.ts）。
  */
 
 /** 作るときに渡す、レシピの id → 元ファイル */
@@ -45,28 +45,6 @@ function progressTracker(total: number, onProgress?: (progress: number) => void)
   }
 }
 
-/** 流れる量を数え、中断を確かめるだけの素通しの変換 */
-function meter(signal: AbortSignal | undefined, onChunk: (chunk: Uint8Array<ArrayBuffer>) => void) {
-  return new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>({
-    transform(chunk, controller) {
-      throwIfAborted(signal)
-      onChunk(chunk)
-      controller.enqueue(chunk)
-    },
-  })
-}
-
-async function collect(stream: ReadableStream<Uint8Array>): Promise<Blob> {
-  const parts: Uint8Array[] = []
-  const reader = stream.getReader()
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    parts.push(value)
-  }
-  return new Blob(parts as BlobPart[])
-}
-
 /* ---- ZIP ---- */
 
 interface Packed {
@@ -78,6 +56,7 @@ interface Packed {
 /**
  * 1 ファイル分を縮める。縮めても小さくならなければ無圧縮に切り替える（展開側も速い）。
  * 無圧縮のときは元の Blob をそのまま出力の部品にするので、中身を写さない。
+ * 読む・CRC を数える・縮めるは compress.ts（大きなものは Worker）に任せる。
  */
 async function pack(
   blob: Blob,
@@ -87,51 +66,11 @@ async function pack(
   signal: AbortSignal | undefined,
   onBytes: (bytes: number) => void
 ): Promise<Packed> {
-  const crc = createCrc32()
-  if (stored) {
-    await collectCrc(blob, crc, signal, onBytes)
-    return { method: 0, crc: crc.value(), data: blob }
-  }
-  if (blob.size <= inMemoryLimit) {
-    throwIfAborted(signal)
-    const raw = new Uint8Array(await blob.arrayBuffer())
-    crc.update(raw)
-    const compressed = deflateSync(raw, { level })
-    onBytes(blob.size)
-    return compressed.length < raw.length
-      ? { method: 8, crc: crc.value(), data: new Blob([compressed]) }
-      : { method: 0, crc: crc.value(), data: blob }
-  }
-  const compressed = await collect(
-    blob
-      .stream()
-      .pipeThrough(
-        meter(signal, (chunk) => {
-          crc.update(chunk)
-          onBytes(chunk.length)
-        })
-      )
-      .pipeThrough(new CompressionStream('deflate-raw'))
+  const { data, crc } = await compress(
+    { mode: stored ? 'crc' : 'deflate', blob, level, inMemoryLimit },
+    { signal, onBytes }
   )
-  return compressed.size < blob.size
-    ? { method: 8, crc: crc.value(), data: compressed }
-    : { method: 0, crc: crc.value(), data: blob }
-}
-
-async function collectCrc(
-  blob: Blob,
-  crc: ReturnType<typeof createCrc32>,
-  signal: AbortSignal | undefined,
-  onBytes: (bytes: number) => void
-) {
-  const reader = blob.stream().getReader()
-  for (;;) {
-    throwIfAborted(signal)
-    const { done, value } = await reader.read()
-    if (done) break
-    crc.update(value)
-    onBytes(value.length)
-  }
+  return data && data.size < blob.size ? { method: 8, crc, data } : { method: 0, crc, data: blob }
 }
 
 /** MS-DOS 形式の日時（ローカル時刻、2 秒刻み）。1980〜2107 年に寄せる */
@@ -278,21 +217,13 @@ export async function writeTarGz(
   const tar = new Blob(parts)
   const advance = progressTracker(tar.size, onProgress)
 
-  let blob: Blob
-  if (tar.size <= inMemoryLimit) {
-    throwIfAborted(signal)
-    blob = new Blob([gzipSync(new Uint8Array(await tar.arrayBuffer()), { level: recipe.level })])
-  } else {
-    blob = await collect(
-      tar
-        .stream()
-        .pipeThrough(meter(signal, (chunk) => advance(chunk.length)))
-        .pipeThrough(new CompressionStream('gzip'))
-    )
-  }
+  const { data } = await compress(
+    { mode: 'gzip', blob: tar, level: recipe.level, inMemoryLimit },
+    { signal, onBytes: advance }
+  )
   onProgress?.(1)
   return {
-    blob: new Blob([blob], { type: 'application/gzip' }),
+    blob: new Blob([data!], { type: 'application/gzip' }),
     filename: archiveFileName(recipe.name, '.tar.gz'),
   }
 }

@@ -1,6 +1,6 @@
 import type { RenderOptions, RenderedFile } from '../types'
 import type { UnrepresentableChar } from './encoding'
-import { encodeText, mimeTypeFor } from './encoding'
+import { encodeTextInSlices, mimeTypeFor } from './encoding'
 import { probeText } from './probe'
 import type { ReplacementOutcome, TextRecipe } from './recipe'
 import { resolveTextOutput, transformText } from './recipe'
@@ -54,7 +54,7 @@ export async function renderText(
   onProgress?.(0.7)
 
   const output = resolveTextOutput(recipe, info)
-  const { bytes, unrepresentable } = encodeText(text, output.encoding, output.bom)
+  const { bytes, unrepresentable } = await encodeTextInSlices(text, output.encoding, output.bom, signal)
   if (unrepresentable.length > 0 && (options.unrepresentable ?? 'error') === 'error') {
     throw new UnrepresentableCharactersError(output.encoding, unrepresentable)
   }
