@@ -1,10 +1,18 @@
 import { describe, expect, test } from 'vitest'
 import fc from 'fast-check'
-import { batchReducer, initialBatchState } from './batchConversion'
-import type { BatchAction, BatchState } from './batchConversion'
+import { batchReducer, fileKey, initialBatchState } from './batchConversion'
+import type { BatchAction, BatchInput, BatchState } from './batchConversion'
+import { CONVERT_KINDS } from '../pages/convert/kinds'
 import { progressValue, videoFile } from '../test/arbitraries'
 
-const fileList = fc.array(videoFile, { minLength: 1, maxLength: 5 })
+/** 取り込みでは同じファイルを落とすので、件数を保つ性質を見る一覧は重複なしで作る */
+const uniqueFiles = (minLength: number) =>
+  fc.uniqueArray(videoFile, { minLength, maxLength: 5, selector: fileKey })
+
+const fileList = uniqueFiles(1)
+
+const asInputs = (files: File[], kinds: readonly BatchInput['kind'][] = ['video']): BatchInput[] =>
+  files.map((file, i) => ({ file, kind: kinds[i % kinds.length] }))
 
 /** 特定の 1 件に向けた操作。ファイル一覧そのものは動かさない */
 type IndexedAction = Extract<BatchAction, { index: number }>
@@ -13,7 +21,9 @@ const actionAt = (index: number): fc.Arbitrary<IndexedAction> =>
   fc.oneof(
     fc.constant({ type: 'start', index } as const),
     progressValue.map((value) => ({ type: 'progress', index, value }) as const),
-    fc.nat().map((convertedSize) => ({ type: 'complete', index, convertedSize }) as const),
+    fc
+      .tuple(fc.nat(), fc.string())
+      .map(([convertedSize, outputName]) => ({ type: 'complete', index, convertedSize, outputName }) as const),
     fc.string().map((message) => ({ type: 'fail', index, message }) as const)
   )
 
@@ -34,7 +44,7 @@ const indexedSequence = fc.array(indexedAction, { minLength: 8, maxLength: 24 })
  */
 const anyAction: fc.Arbitrary<BatchAction> = fc.oneof(
   { arbitrary: indexedAction, weight: 8 },
-  { arbitrary: fileList.map((files) => ({ type: 'init', files }) as const), weight: 1 },
+  { arbitrary: fileList.map((files) => ({ type: 'init', files: asInputs(files) }) as const), weight: 1 },
   { arbitrary: fc.constant({ type: 'clear' } as const), weight: 1 }
 )
 
@@ -43,7 +53,8 @@ const anyActionSequence = fc.array(anyAction, { minLength: 8, maxLength: 30 })
 const reachable = (state: BatchState, actions: BatchAction[]): BatchState =>
   actions.reduce(batchReducer, state)
 
-const initial = (files: File[]) => batchReducer(initialBatchState, { type: 'init', files })
+const initial = (files: File[]) =>
+  batchReducer(initialBatchState, { type: 'init', files: asInputs(files) })
 
 describe('batchReducer', () => {
   test('選び直し以外の操作では件数が変わらない', () => {
@@ -92,7 +103,7 @@ describe('batchReducer', () => {
   test('別々の件に向けた操作は順番を入れ替えても同じ結果になる（順序非依存性）', () => {
     fc.assert(
       fc.property(
-        fc.array(videoFile, { minLength: 2, maxLength: 5 }).chain((files) =>
+        uniqueFiles(2).chain((files) =>
           fc.tuple(
             fc.constant(files),
             fc
@@ -175,7 +186,7 @@ describe('batchReducer', () => {
         (files, actions, next) => {
           const before = reachable(initial(files), actions)
           expect(batchReducer(before, { type: 'clear' })).toEqual(initialBatchState)
-          expect(batchReducer(before, { type: 'init', files: next })).toEqual(initial(next))
+          expect(batchReducer(before, { type: 'init', files: asInputs(next) })).toEqual(initial(next))
         }
       )
     )
@@ -212,7 +223,7 @@ function runActions(plans: FilePlan[]): BatchAction[] {
     actions.push({ type: 'start', index })
     for (const value of plan.progresses) actions.push({ type: 'progress', index, value })
     if (plan.outcome === 'complete')
-      actions.push({ type: 'complete', index, convertedSize: CONVERTED_SIZE })
+      actions.push({ type: 'complete', index, convertedSize: CONVERTED_SIZE, outputName: 'out' })
     else if (plan.outcome === 'fail') actions.push({ type: 'fail', index, message: 'boom' })
     else break
   }
@@ -246,8 +257,104 @@ describe('batchReducer（変換ランが流す順序）', () => {
         // 直前に決着していても、やり直しの start で必ず素の状態へ戻る
         expect(batchReducer(after, { type: 'start', index: 0 })[0]).toEqual({
           file: files[0],
+          kind: 'video',
           status: 'converting',
           progress: 0,
+        })
+      })
+    )
+  })
+})
+
+/** 種類も混ぜた取り込み。同じファイルを何度も含みうる（ドロップし直しや重複した選択） */
+const kind = fc.constantFrom(...CONVERT_KINDS)
+const inputPool = uniqueFiles(1).chain((files) =>
+  fc.tuple(fc.constant(files), fc.array(kind, { minLength: files.length, maxLength: files.length }))
+)
+const inputsFrom = ([files, kinds]: [File[], BatchInput['kind'][]]): fc.Arbitrary<BatchInput[]> =>
+  fc.array(
+    fc.tuple(fc.integer({ min: 0, max: files.length - 1 }), fc.boolean()).map(([i, copy]) => ({
+      // 同じ File オブジェクトだけでなく、作り直された同じファイル（ドロップし直し）も混ぜる
+      file: copy ? new File([files[i]], files[i].name, { lastModified: files[i].lastModified }) : files[i],
+      kind: kinds[i],
+    })),
+    { maxLength: 8 }
+  )
+
+const twoBatches = inputPool.chain((pool) => fc.tuple(inputsFrom(pool), inputsFrom(pool)))
+
+describe('batchReducer（追加と取り除き）', () => {
+  test('追加しても同じファイルは 1 件にまとまり、すでにある件はそのまま残る', () => {
+    fc.assert(
+      fc.property(twoBatches, ([first, second]) => {
+        const before = batchReducer(initialBatchState, { type: 'init', files: first })
+        const after = batchReducer(before, { type: 'append', files: second })
+        const keys = after.map((entry) => fileKey(entry.file))
+        expect(new Set(keys).size).toBe(keys.length)
+        // 前からある件は同じオブジェクトのまま先頭に並ぶ
+        before.forEach((entry, i) => expect(after[i]).toBe(entry))
+        // どちらかの取り込みにあったファイルはすべて載る
+        const wanted = new Set([...first, ...second].map(({ file }) => fileKey(file)))
+        expect(new Set(keys)).toEqual(wanted)
+        for (const entry of after.slice(before.length)) expect(entry.status).toBe('pending')
+      })
+    )
+  })
+
+  test('何も増えない追加は状態を作り直さない', () => {
+    fc.assert(
+      fc.property(twoBatches, ([first]) => {
+        const before = batchReducer(initialBatchState, { type: 'init', files: first })
+        expect(batchReducer(before, { type: 'append', files: first })).toBe(before)
+        expect(batchReducer(before, { type: 'append', files: [] })).toBe(before)
+      })
+    )
+  })
+
+  test('取り込んだときの種類は、どの操作をたどっても変わらない', () => {
+    fc.assert(
+      fc.property(inputPool, indexedSequence, ([files, kinds], actions) => {
+        const inputs = files.map((file, i) => ({ file, kind: kinds[i] }))
+        const state = reachable(batchReducer(initialBatchState, { type: 'init', files: inputs }), actions)
+        state.forEach((entry, i) => expect(entry.kind).toBe(kinds[i]))
+      })
+    )
+  })
+
+  test('取り除くとその 1 件だけが消え、範囲外なら何もしない', () => {
+    fc.assert(
+      fc.property(fileList, indexedSequence, itemIndex, (files, actions, index) => {
+        const before = reachable(initial(files), actions)
+        const after = batchReducer(before, { type: 'remove', index })
+        if (index < 0 || index >= before.length) {
+          expect(after).toBe(before)
+          return
+        }
+        expect(after).toEqual([...before.slice(0, index), ...before.slice(index + 1)])
+      })
+    )
+  })
+
+  test('全件を待機に戻すと、ファイルと種類を保ったまま前のランの結果が消える', () => {
+    fc.assert(
+      fc.property(fileList, indexedSequence, (files, actions) => {
+        const before = reachable(initial(files), actions)
+        const after = batchReducer(before, { type: 'requeue' })
+        expect(after).toEqual(initial(files))
+        // もう一度戻しても描き直さない
+        expect(batchReducer(after, { type: 'requeue' })).toBe(after)
+      })
+    )
+  })
+
+  test('1 件だけ待機に戻すと、ほかの件には触れない', () => {
+    fc.assert(
+      fc.property(fileList, indexedSequence, itemIndex, (files, actions, index) => {
+        const before = reachable(initial(files), actions)
+        const after = batchReducer(before, { type: 'requeue', index })
+        before.forEach((entry, i) => {
+          if (i === index) expect(after[i]).toEqual(initial(files)[i])
+          else expect(after[i]).toBe(entry)
         })
       })
     )
