@@ -37,7 +37,7 @@ const ja = {
   formatHintGif: 'ループ画像',
 
   // Quality / FPS
-  qualityLabel: 'Quality',
+  qualityLabel: '画質',
   qualityHint: 'ビットレートの目安です。下げるとサイズが小さくなります。',
   fpsLabel: 'FPS',
   fpsHint: '下げるほど軽くなり、上げるほど滑らかになります。',

@@ -100,12 +100,15 @@ export function intrinsicSvgSize(attrs: { width?: string | null; height?: string
   const box = parseViewBox(attrs.viewBox)
   if (box) {
     const ratio = box.width / box.height
-    if (width !== null) return { width, height: width / ratio }
-    if (height !== null) return { width: height * ratio, height }
+    // 片方が極端に大きいと比で割り戻した側が無限大や 0 に振り切れるので、有限の正の範囲に収める
+    if (width !== null) return { width, height: finitePositive(width / ratio) }
+    if (height !== null) return { width: finitePositive(height * ratio), height }
     return { width: box.width, height: box.height }
   }
   return { width: width ?? DEFAULT_SVG_SIZE.width, height: height ?? DEFAULT_SVG_SIZE.height }
 }
+
+const finitePositive = (n: number) => Math.min(Math.max(n, Number.MIN_VALUE), Number.MAX_VALUE)
 
 /** 寸法の計算が無限大にならないための頭打ち。実際の上限（MAX_DIMENSION）は呼び出し側で確かめる */
 const SIZE_CAP = 1e9
