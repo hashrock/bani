@@ -59,13 +59,13 @@ src/
 
 - [x] リネーム: `package.json`、`index.html` の title、README、i18n の保存キー（旧キーも読む）
 - [x] Pages の base をリポジトリ名から自動で決める（改名しても設定変更不要）
-- [ ] GitHub リポジトリ名の変更（`mediabunny-ui` → `bani`）
+- [x] GitHub リポジトリ名の変更（`mediabunny-ui` → `bani`）
 - [x] 自前の hash router（`#/`、`#/edit/<kind>`、`#/convert`）
 - [x] アプリ全体でドロップを受け、種別と数から画面を振り分ける。対応外のファイルは通知
 - [x] 入口の画面（ドロップハブ）。対応状況をメディアごとに表示
 - [x] 既存の動画画面を単体編集（`#/edit/video`）と一括変換（`#/convert`）に分割
 - [ ] PWA 化: Service Worker で全アセット（`gif.worker.js` 含む）を事前キャッシュ、manifest、インストール可能に
-- [ ] 外部スクリプト（`index.html` のサービス切り替え `repos.hashrock.info`）の扱いを決める。オフライン時は読めずに消えるだけでよいか、同梱するか
+- [ ] 外部スクリプト（`index.html` のサービス切り替え `repos.hashrock.info`）は同梱しない。オフライン時は読み込めずに表示されないだけでよい（Service Worker もキャッシュしない）
 - [ ] オフライン動作の確認手順を CI かチェックリストに入れる
 
 ## Phase 1: 非破壊編集モデルの確立（動画）
