@@ -1,23 +1,18 @@
+import { Button } from '@/components/ui/button'
 import { formatRoute } from '../app/routes'
-import { BrandMark, LangSwitch } from '../components/BrandMark'
+import { HubLayout } from '../components/HubLayout'
 import { useI18n } from '../i18n/context'
 
 /** 準備中の画面や、見つからない画面に出す案内 */
 export function MessagePage({ title, body }: { title: string; body?: string }) {
   const { t } = useI18n()
   return (
-    <div className="hub">
-      <header className="hub-head">
-        <BrandMark />
-        <LangSwitch />
-      </header>
-      <main className="hub-main hub-message">
-        <h1>{title}</h1>
-        {body && <p>{body}</p>}
-        <a className="ghost-btn" href={formatRoute({ name: 'hub' })}>
-          {t.backToHub}
-        </a>
-      </main>
-    </div>
+    <HubLayout className="items-start justify-center">
+      <h1 className="text-xl font-semibold">{title}</h1>
+      {body && <p className="text-[13px] leading-relaxed text-muted-foreground">{body}</p>}
+      <Button asChild variant="outline" size="xs" className="h-7 px-2.5">
+        <a href={formatRoute({ name: 'hub' })}>{t.backToHub}</a>
+      </Button>
+    </HubLayout>
   )
 }

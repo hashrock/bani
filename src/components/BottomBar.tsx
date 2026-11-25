@@ -1,4 +1,9 @@
 import type { RefObject } from 'react'
+import { PauseIcon, PlayIcon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/ui/progress'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { cn } from '@/lib/utils'
 import { useVideoPlayback } from '../hooks/useVideoPlayback'
 import { useI18n } from '../i18n/context'
 import { applyTrim, isWholeClip, trimDuration, trimFromSettings } from '../state/trim'
@@ -88,17 +93,19 @@ export function BottomBar({
     <div className="bottom-bar">
       {hasTimeline && (
         <div className="trim-row">
-          <button
-            className="transport-btn"
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="rounded-full border-input hover:border-primary"
             onClick={togglePlay}
             title={playback.playing ? t.pause : t.play}
             aria-label={playback.playing ? t.pause : t.play}
           >
-            {playback.playing ? '❚❚' : '▶'}
-          </button>
+            {playback.playing ? <PauseIcon className="fill-current" /> : <PlayIcon className="fill-current" />}
+          </Button>
           <span className="transport-time">
             {formatTimecode(playback.currentTime)}
-            <span className="transport-time-total"> / {formatTimecode(duration)}</span>
+            <span className="text-muted-foreground"> / {formatTimecode(duration)}</span>
           </span>
 
           <Timeline
@@ -117,87 +124,99 @@ export function BottomBar({
 
       <div className="adjust-row">
         {hasTimeline && (
-          <div className="trim-fields">
+          <div className="flex flex-wrap items-center gap-1.5">
             <TimeField
               label={t.trimIn}
               value={start}
               onChange={(time) => dispatchTrim({ type: 'setStart', time })}
             />
-            <button
-              className="ghost-btn"
+            <Button
+              variant="outline"
+              size="xs"
               onClick={() => dispatchTrim({ type: 'setStart', time: playback.currentTime })}
               title={t.setInTitle}
             >
               {t.setInToPlayhead}
-            </button>
+            </Button>
 
             <TimeField
               label={t.trimOut}
               value={end}
               onChange={(time) => dispatchTrim({ type: 'setEnd', time })}
             />
-            <button
-              className="ghost-btn"
+            <Button
+              variant="outline"
+              size="xs"
               onClick={() => dispatchTrim({ type: 'setEnd', time: playback.currentTime })}
               title={t.setOutTitle}
             >
               {t.setOutToPlayhead}
-            </button>
+            </Button>
 
-            <button
-              className="ghost-btn"
+            <Button
+              variant="outline"
+              size="xs"
               onClick={() => dispatchTrim({ type: 'wholeClip' })}
               disabled={isWholeClip(trim, duration)}
               title={t.wholeClipTitle}
             >
               {t.wholeClip}
-            </button>
+            </Button>
           </div>
         )}
 
         <div className="result-actions">
           {converting && (
             <>
-              <div className="inline-progress">
-                <div className="inline-progress-bar" style={{ width: `${progress}%` }} />
-              </div>
-              <span className="inline-progress-text">{progress}%</span>
-              <button className="cancel-btn" onClick={onCancel}>
+              <Progress value={progress} className="h-1 w-[120px]" />
+              <span className="min-w-9 text-xs text-muted-foreground tabular-nums">{progress}%</span>
+              <Button variant="destructive" size="sm" onClick={onCancel}>
                 {t.cancel}
-              </button>
+              </Button>
             </>
           )}
 
           {!converting && result && (
             <>
-              <div className="compare-toggle">
-                <button
-                  className={`toggle-btn ${!showAfter ? 'active' : ''}`}
-                  onClick={() => onToggleView(false)}
-                >
-                  {t.before} <span className="size-badge">{formatBytes(result.originalSize)}</span>
-                </button>
-                <button
-                  className={`toggle-btn ${showAfter ? 'active' : ''}`}
-                  onClick={() => onToggleView(true)}
-                >
-                  {t.after} <span className="size-badge">{formatBytes(result.convertedSize)}</span>
-                  <span className={`compression-badge ${compressionRatio < 0 ? 'negative' : ''}`}>
+              <ToggleGroup
+                type="single"
+                spacing={1}
+                className="rounded-md bg-secondary p-[3px]"
+                value={showAfter ? 'after' : 'before'}
+                // 押し直しで両方が外れないよう、空の値は無視する
+                onValueChange={(value) => value && onToggleView(value === 'after')}
+              >
+                <ToggleGroupItem value="before" size="sm" className={compareItemClass}>
+                  {t.before}
+                  <span className="text-[10px] opacity-70">{formatBytes(result.originalSize)}</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="after" size="sm" className={compareItemClass}>
+                  {t.after}
+                  <span className="text-[10px] opacity-70">{formatBytes(result.convertedSize)}</span>
+                  <span
+                    className={cn(
+                      'rounded-sm px-1.5 py-0.5 text-[10px]',
+                      compressionRatio < 0 ? 'bg-destructive/25' : 'bg-success/25'
+                    )}
+                  >
                     {compressionDisplay}
                   </span>
-                </button>
-              </div>
+                </ToggleGroupItem>
+              </ToggleGroup>
 
-              <button
-                className={`reconvert-btn ${stale ? 'stale' : ''}`}
+              {/* 設定を変えたあとは、結果が古いことを塗りつぶしで示す */}
+              <Button
+                variant={stale ? 'default' : 'outline'}
+                size="sm"
+                className="border-primary"
                 onClick={onConvert}
                 title={stale ? t.reconvertTitleStale : t.reconvertTitle}
               >
                 {stale ? `● ${t.reconvert}` : t.reconvert}
-              </button>
-              <button className="download-btn" onClick={onDownload}>
+              </Button>
+              <Button variant="outline" size="sm" className="border-primary" onClick={onDownload}>
                 {t.download}
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -205,3 +224,7 @@ export function BottomBar({
     </div>
   )
 }
+
+/** 変換前後の切り替え。選ばれている側を白く浮かせる */
+const compareItemClass =
+  'h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:bg-transparent data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs'
