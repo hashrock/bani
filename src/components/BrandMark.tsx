@@ -87,7 +87,7 @@ export function ThemeSwitch() {
           <Icon />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="w-auto whitespace-nowrap">
         <DropdownMenuRadioGroup
           value={preference}
           onValueChange={(value) => {

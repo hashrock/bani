@@ -22,7 +22,7 @@ export function resolveTheme(preference: ThemePreference, systemDark: boolean): 
 }
 
 /** index.html の theme-color。背景（--background）と同じにして、ブラウザの枠と画面をつなげる */
-const THEME_COLOR: Record<Theme, string> = { light: '#ffffff', dark: '#0a0a0a' }
+const THEME_COLOR: Record<Theme, string> = { light: '#ffffff', dark: '#121212' }
 
 const listeners = new Set<() => void>()
 const media = typeof window !== 'undefined' ? window.matchMedia('(prefers-color-scheme: dark)') : null

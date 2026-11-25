@@ -62,9 +62,9 @@ export function BatchStatus({ entries, onRemove }: BatchStatusProps) {
         <Table className="table-fixed text-xs">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="h-8 w-28 px-3 text-muted-foreground">{t.batchColStatus}</TableHead>
+              <TableHead className="h-8 w-24 px-3 text-muted-foreground sm:w-28">{t.batchColStatus}</TableHead>
               <TableHead className="h-8 px-3 text-muted-foreground">{t.batchColFile}</TableHead>
-              <TableHead className="h-8 w-48 px-3 text-right text-muted-foreground">
+              <TableHead className="h-8 w-24 px-3 text-right text-muted-foreground sm:w-48">
                 {t.batchColOutput}
               </TableHead>
               {onRemove && <TableHead className="h-8 w-9 px-1" />}

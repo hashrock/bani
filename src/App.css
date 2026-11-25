@@ -220,17 +220,53 @@
     border-radius: 50%;
   }
 
+  /* ===== Touch: 指で掴むつまみは、見た目はそのままに掴める範囲を広げる ===== */
+  @media (pointer: coarse) {
+    .timeline-handle::before {
+      content: '';
+      position: absolute;
+      inset: -12px -14px;
+    }
+
+    [data-slot='slider-thumb'] {
+      position: relative;
+    }
+
+    [data-slot='slider-thumb']::after {
+      content: '';
+      position: absolute;
+      inset: -10px;
+    }
+  }
+
   /* ===== Responsive: 狭い画面ではサイドバーを下に回す ===== */
   @media (max-width: 860px) {
     .app {
       flex-direction: column-reverse;
     }
 
+    /* 携帯のブラウザはアドレスバーの出し入れで vh が変わるので、見えている高さ（dvh）で測る */
     .sidebar {
       width: 100%;
       border-right: none;
       border-top: 1px solid var(--border);
       max-height: 45vh;
+      max-height: 45dvh;
+    }
+
+    /* タイムラインを 2 段目に回して幅いっぱいに使う（1 段目は再生・時刻・区間の長さ） */
+    .trim-row {
+      flex-wrap: wrap;
+      row-gap: 0;
+    }
+
+    .timeline {
+      order: 1;
+      flex-basis: 100%;
+    }
+
+    .trim-length {
+      margin-left: auto;
     }
 
     .adjust-row {
