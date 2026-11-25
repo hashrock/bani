@@ -5,6 +5,8 @@ import { FileUpload } from '../../components/FileUpload'
 import { Sidebar } from '../../components/Sidebar'
 import { VideoPreview } from '../../components/VideoPreview'
 import { useRememberedChoice } from '../../core/usePersistentState'
+import { isRectOrNull } from '../../core/session'
+import { useSessionRecipe } from '../../core/useSessionRecipe'
 import { useSave } from '../../core/useSave'
 import { useConversionJob } from '../../hooks/useConversionJob'
 import { useMediaInfo } from '../../hooks/useMediaInfo'
@@ -28,7 +30,7 @@ const resultKey = (recipe: VideoRecipe, output: VideoOutput) => JSON.stringify([
  * 動画 1 本を開き、編集（レシピ）と出力設定を決めて書き出す画面。
  * レシピは取り消し・やり直しの履歴で持ち、出力設定は別のファイルを開いても残す。
  */
-export function VideoEditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange }: EditPageProps) {
+export function VideoEditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange, resumed }: EditPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(videoMessages)
   const file = opened?.file ?? null
@@ -80,6 +82,18 @@ export function VideoEditPage({ opened, isDragging, onFiles, onReopen, onDirtyCh
     onSourceReplaced: onReopen,
   })
   useReportUnsaved(edits.dirty, onDirtyChange)
+  // 作業を残し、入口から再開できるようにする（尺がわかってから、トリムが尺の内側なら当てる）
+  useSessionRecipe('video', committed, {
+    opened,
+    resumed,
+    enabled: !!file,
+    dirty: edits.dirty,
+    version: 1,
+    ready: !!media,
+    check: (saved, fresh) =>
+      saved.trim.start >= 0 && saved.trim.end <= fresh.trim.end + 1e-3 && isRectOrNull(saved.crop),
+    onResume: edits.restore,
+  })
 
   const size = media ? editedSize(media, recipe) : null
 

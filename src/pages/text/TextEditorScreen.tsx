@@ -18,6 +18,8 @@ import type { SaveMethod } from '../../core/save'
 import { useHotkey } from '../../core/useHotkey'
 import { usePersistentState } from '../../core/usePersistentState'
 import { useSave } from '../../core/useSave'
+import type { ResumedSession } from '../../core/session'
+import { useSessionRecipe } from '../../core/useSessionRecipe'
 import type { SaveRendered, WrittenMethod } from '../../core/useSave'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
@@ -104,13 +106,24 @@ interface TextEditorScreenProps {
   onNew: () => void
   /** 保存していない変更があるか（App が開き直す前・閉じる前に確かめる） */
   onDirtyChange: (dirty: boolean) => void
+  /** 作業の保存に使う、開いたファイル（新規の文書なら null）と、再開して来たときのセッション */
+  session?: { opened: OpenedFile | null; resumed: ResumedSession | null }
+}
+
+/** 残す作業の形の見本。置換の一覧は空なので、要素の形は 1 つ置いて比べる */
+const SESSION_TEMPLATE = {
+  text: '',
+  recipe: {
+    ...DEFAULT_TEXT_RECIPE,
+    replacements: [{ id: '', find: '', replace: '', regex: false, caseSensitive: false }],
+  },
 }
 
 /**
  * テキスト・コードの編集画面。本文と取り消しの履歴は CodeMirror が持ち、
  * この画面は「どう書くか」（文字コード・BOM・改行・字幕の形式）と保存の基準を持つ
  */
-export function TextEditorScreen({ initial, isDragging, onFiles, onNew, onDirtyChange }: TextEditorScreenProps) {
+export function TextEditorScreen({ initial, isDragging, onFiles, onNew, onDirtyChange, session }: TextEditorScreenProps) {
   const m = useLocalMessages(textMessages)
   const { t } = useI18n()
   const [base, setBase] = useState(initial.base)
@@ -214,6 +227,24 @@ export function TextEditorScreen({ initial, isDragging, onFiles, onNew, onDirtyC
     },
     [view]
   )
+
+  // 本文と書き方（レシピ）を作業として残し、入口から再開できるようにする。
+  // 再開した本文は読み込んだ本文への 1 回の書き換えとして当てる（取り消せばファイルの中身に戻る）
+  const sessionRecipe = useMemo(() => ({ text: snapshot, recipe }), [snapshot, recipe])
+  useSessionRecipe('text', sessionRecipe, {
+    opened: session?.opened ?? null,
+    resumed: session?.resumed,
+    enabled: true,
+    dirty: modified,
+    version: 1,
+    ready: view !== null,
+    template: SESSION_TEMPLATE,
+    label: displayName,
+    onResume: (saved) => {
+      replaceDoc(saved.text)
+      setRecipe(saved.recipe)
+    },
+  })
 
   const runTool = (transform: (text: string) => string) => {
     if (!view) return

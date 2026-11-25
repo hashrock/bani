@@ -25,13 +25,14 @@ import {
   ToolbarDivider,
 } from '../../components/SidebarParts'
 import { Step, StepHint } from '../../components/Step'
-import { pickFiles } from '../../core/opened'
+import { openedFromFile, pickFiles } from '../../core/opened'
 import type { OpenedFile } from '../../core/opened'
 import { canPickFolder, pickSaveFolder, planSaveMany, saveFiles } from '../../core/save'
 import type { SaveManyMethod } from '../../core/save'
 import { shouldHandle, useHotkey } from '../../core/useHotkey'
 import { usePersistentState } from '../../core/usePersistentState'
 import { useRecipeHistory } from '../../core/useRecipeHistory'
+import { useSessionRecipe } from '../../core/useSessionRecipe'
 import { savedFilesMessage, useSave } from '../../core/useSave'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
@@ -107,7 +108,7 @@ const acceptsPages = (items: DragItemKind[]) =>
   items.length > 0 && items.every((item) => isPdfItem(item) || isImageItem(item))
 
 /** PDF を開き、ページの並べ替え・回転・削除・抽出、結合、分割をして保存する画面 */
-export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange }: EditPageProps) {
+export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange, resumed }: EditPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(messages)
   const file = opened?.file ?? null
@@ -434,6 +435,31 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [imagesMode])
   useReportUnsaved(history.dirty, onDirtyChange)
+  // 作業を残し、入口から再開できるようにする。結合した PDF（2 つ目以降の入力）も同じ並びで残す
+  const extraSources = useMemo(() => sources.slice(1).map((source) => openedFromFile(source.file)), [sources])
+  useSessionRecipe('pdf', recipe, {
+    opened,
+    resumed,
+    enabled: !!file,
+    dirty: history.dirty,
+    version: 1,
+    ready,
+    extras: extraSources,
+    onResume: async (saved, session) => {
+      const added: Source[] = []
+      for (const extra of session.extras) {
+        const info = await probePdf(extra.file)
+        if (info.encrypted) return
+        added.push({ file: extra.file, info })
+      }
+      const all = addSources(added)
+      const fits = saved.pages.every(
+        ({ source, page }) =>
+          Number.isInteger(source) && Number.isInteger(page) && page >= 0 && page < (all[source]?.info.pageCount ?? 0)
+      )
+      if (fits) history.restore(saved)
+    },
+  })
 
   // 一覧にフォーカスがなくても、⌘A で全ページを選び、Delete で選んだページを消す
   // （一覧にフォーカスがあるときは一覧が自分で処理する）

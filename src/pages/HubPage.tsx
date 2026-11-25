@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import type { Capabilities } from '../app/intake'
 import { MEDIA_KINDS, formatRoute } from '../app/routes'
 import { HubLayout } from '../components/HubLayout'
+import { ResumeSessions } from '../components/ResumeSessions'
 import { pickFiles } from '../core/opened'
 import type { OpenedFile } from '../core/opened'
 import { useI18n } from '../i18n/context'
@@ -12,10 +13,12 @@ interface HubPageProps {
   capabilities: Capabilities
   isDragging: boolean
   onFiles: (files: OpenedFile[]) => void
+  /** 「前回の作業を再開」で選んだセッション */
+  onResume: (id: string) => void
 }
 
 /** 入口。とりあえずファイルを落とせば、種類と数に合った画面へ進む */
-export function HubPage({ capabilities, isDragging, onFiles }: HubPageProps) {
+export function HubPage({ capabilities, isDragging, onFiles, onResume }: HubPageProps) {
   const { t } = useI18n()
 
   return (
@@ -40,6 +43,8 @@ export function HubPage({ capabilities, isDragging, onFiles }: HubPageProps) {
         </span>
         <span className={cn(buttonVariants({ variant: 'outline', size: 'xs' }), 'h-7 px-2.5')}>{t.hubPick}</span>
       </button>
+
+      <ResumeSessions onResume={onResume} />
 
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
         {MEDIA_KINDS.map((kind) => {

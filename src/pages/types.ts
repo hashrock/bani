@@ -1,4 +1,5 @@
 import type { OpenedFile } from '../core/opened'
+import type { ResumedSession } from '../core/session'
 
 /** すべての単体編集画面が受け取るもの。画面はファイルごとに作り直される（key） */
 export interface EditPageProps {
@@ -18,6 +19,11 @@ export interface EditPageProps {
    * レシピのある画面は、開いた・保存したときからレシピが変わっていれば変更あり
    */
   onDirtyChange: (dirty: boolean) => void
+  /**
+   * 入口の「前回の作業を再開」から来たとき。opened はそのとき読み直したファイル。
+   * 画面は useSessionRecipe に渡し、残っていたレシピを当てる
+   */
+  resumed?: ResumedSession | null
 }
 
 /**

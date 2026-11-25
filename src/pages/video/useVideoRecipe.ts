@@ -68,6 +68,8 @@ export function useVideoRecipe() {
     preview,
     commit,
     resetFor,
+    /** 前回の作業を再開する（resetFor のあとに。履歴はそこから始まる） */
+    restore: history.restore,
     undo: history.undo,
     redo: history.redo,
     /** 開いた・保存したときからレシピが変わったか（ドラッグ中の下書きは数えない） */

@@ -49,6 +49,14 @@ export function useRecipeHistory<T>(initial: T | (() => T), options: { hotkeys?:
 
   /** 履歴を捨てて置き換える（別のファイルを開いた、尺が判明した、など）。置き換えた時点を保存済みとみなす */
   const replace = useCallback((next: T) => setState(fresh(next)), [])
+  /**
+   * 前回の作業を再開するとき。履歴はそのレシピから始め、保存済みの基準は開いたときのレシピのまま残す
+   * （元ファイルからは変わっているので、保存していない変更ありになる）
+   */
+  const restore = useCallback(
+    (next: T) => setState((current) => ({ history: createHistory(next), saved: current.saved })),
+    []
+  )
   const undo = useCallback(() => setState((current) => withHistory(current, undoHistory(current.history))), [])
   const redo = useCallback(() => setState((current) => withHistory(current, redoHistory(current.history))), [])
   /** 保存できたとき。いまのレシピを保存済みにする */
@@ -65,6 +73,7 @@ export function useRecipeHistory<T>(initial: T | (() => T), options: { hotkeys?:
     recipe: history.present,
     update,
     replace,
+    restore,
     undo,
     redo,
     markSaved,
