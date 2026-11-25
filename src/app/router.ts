@@ -24,6 +24,7 @@ const guard = createHashGuard({
   onCommit: () => listeners.forEach((listener) => listener()),
 })
 
+window.addEventListener('popstate', () => guard.handlePopState())
 window.addEventListener('hashchange', () => guard.handleHashChange())
 
 /** 画面が移ったとき（確認を通った後）に呼ぶ */

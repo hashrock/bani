@@ -29,6 +29,7 @@ export interface HashGuardDeps {
 export interface HashGuard {
   /** 画面に出す hash */
   committed(): string
+  handlePopState(): void
   handleHashChange(): void
 }
 
@@ -64,6 +65,15 @@ export function createHashGuard(deps: HashGuardDeps): HashGuard {
 
   return {
     committed: () => committed,
+    /**
+     * 戻る・進むのたびに届く（hashchange より先）。hash が同じ項目へ動いたときは hashchange が来ないので、
+     * ここで番号だけ合わせておく。合わせないと次の歩数を数え違え、断ったときに別の項目へ戻してしまう
+     */
+    handlePopState() {
+      if (deps.getHash() !== committed) return
+      reverting = false
+      index = readIndex(history.state) ?? index
+    },
     handleHashChange() {
       const hash = deps.getHash()
       const entry = readIndex(history.state)

@@ -4,8 +4,8 @@ import { createHashGuard } from './hashGuard'
 import type { HashGuard } from './hashGuard'
 
 /**
- * ブラウザの履歴の偽物。hash の移動は非同期に hashchange を出す（本物と同じく、
- * 同じ hash へ動いたときは出さない）。flush で届いた順に処理する。
+ * ブラウザの履歴の偽物。履歴の移動は非同期に popstate を出し、hash が変わったときだけ続けて
+ * hashchange を出す（本物と同じく、同じ hash の項目へ動いたときは hashchange が来ない）。flush で届いた順に処理する。
  */
 class FakeBrowser {
   entries: { hash: string; state: unknown }[]
@@ -38,6 +38,7 @@ class FakeBrowser {
     const before = this.hash
     this.queue.push(() => {
       this.pos = next
+      this.guard.handlePopState()
       if (this.hash !== before) this.fire()
     })
   }
@@ -53,6 +54,7 @@ class FakeBrowser {
     this.entries = this.entries.slice(0, this.pos + 1)
     this.entries.push({ hash, state: null })
     this.pos++
+    this.guard.handlePopState()
     this.fire()
   }
 
@@ -152,6 +154,21 @@ describe('createHashGuard', () => {
     expect(b.guard.committed()).toBe('#/edit/video')
   })
 
+  it('同じ hash の項目へ跳んだ後も歩数を数え違えない', () => {
+    const { b, state } = setup()
+    b.push('#/edit/video')
+    b.push('#/')
+    b.history.go(-2)
+    b.flush()
+    b.push('#/edit/audio')
+    state.dirty = true
+    state.answer = false
+    b.back()
+    b.flush()
+    expect(b.pos).toBe(1)
+    expect(b.guard.committed()).toBe('#/edit/audio')
+  })
+
   it('どんな操作の並びでも、落ち着いたら URL と確定した画面が一致し、確認は 1 操作に 1 回まで', () => {
     const hashes = ['#/', '#/edit/video', '#/edit/audio', '#/convert']
     const action = fc.oneof(
@@ -186,7 +203,8 @@ describe('createHashGuard', () => {
           // 番号は履歴の位置と一致し続ける
           expect(b.entries[b.pos].state).toMatchObject({ baniIndex: b.pos })
         }
-      })
+      }),
+      { numRuns: 500 }
     )
   })
 })
