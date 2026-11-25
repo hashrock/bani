@@ -37,6 +37,8 @@ export type PdfEdit =
   | { type: 'rotate'; indices: readonly number[]; by: PdfRotation | -90 }
   /** 入力 1 つ分の全ページを末尾に足す（結合） */
   | { type: 'appendSource'; source: number }
+  /** 入力 1 つ分の全ページを at の位置へ差し込む（白紙のページを選んだページの後ろに入れる、など） */
+  | { type: 'insertSource'; source: number; at: number }
   /** 1 始まりの範囲に入るページだけを残す（抽出）。順序はいまのまま */
   | { type: 'keepRanges'; ranges: readonly PageRange[] }
 
@@ -100,10 +102,13 @@ export function applyPdfEdit(
         )
       )
     }
-    case 'appendSource': {
+    case 'appendSource':
+    case 'insertSource': {
       const info = sources[edit.source]
       if (!Number.isInteger(edit.source) || !info || info.pageCount <= 0) return recipe
-      return { pages: [...pages, ...sourcePages(edit.source, info.pageCount)] }
+      const at =
+        edit.type === 'appendSource' ? pages.length : Math.max(0, Math.min(pages.length, Math.trunc(edit.at) || 0))
+      return { pages: [...pages.slice(0, at), ...sourcePages(edit.source, info.pageCount), ...pages.slice(at)] }
     }
     case 'keepRanges': {
       const kept = new Set<number>()
@@ -120,10 +125,13 @@ export function applyPdfEdit(
   }
 }
 
-/** レシピのすべてのページが入力の中にあるか。書き出しの前に確かめる */
+const ROTATIONS: readonly number[] = [0, 90, 180, 270]
+
+/** レシピのすべてのページが入力の中にあり、回転も 90 度刻みか。書き出しの前・作業の再開で確かめる */
 export function isPdfRecipeValid(recipe: PdfRecipe, sources: readonly PdfSourceShape[]): boolean {
   return recipe.pages.every(
-    ({ source, page }) =>
+    ({ source, page, rotate }) =>
+      ROTATIONS.includes(rotate) &&
       Number.isInteger(source) &&
       Number.isInteger(page) &&
       source >= 0 &&

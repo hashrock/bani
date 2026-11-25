@@ -1,11 +1,20 @@
 import { defineMessages } from '../../i18n/local'
 import type { SaveManyMethod } from '../../core/save'
-import type { PageRangeError, PdfErrorCode, PdfImageFormat } from '../../media/pdf'
+import type { BlankPageKind, PageRangeError, PdfErrorCode, PdfImageFormat } from '../../media/pdf'
 import type { PdfOutputKind } from './output'
 
 const ja = {
-  dropHere: 'PDF ファイルをここにドロップ',
-  dropHint: 'ページの並べ替え・回転・削除・抽出、ほかの PDF との結合、分割、画像への書き出し、圧縮ができます。',
+  newTitle: '新しい PDF',
+  newEmpty:
+    'PDF や画像をここにドロップするか、下のボタンで足してください。白紙のページも入れられます。並べ替え・回転・削除をして保存します。',
+  untitled: '無題',
+  openPdf: 'PDF を開いて編集する',
+  factContents: '使うファイル',
+  addBlank: '白紙ページ',
+  blankName: ({ paper, orientation }: BlankPageKind) =>
+    `白紙 ${paper === 'a4' ? 'A4' : 'Letter'} ${orientation === 'portrait' ? '縦' : '横'}`,
+  blankBadge: '白紙',
+  blankFailed: '白紙のページを作れませんでした',
   stepSplit: '分割',
   factPages: 'ページ数',
   factSize: 'サイズ',
@@ -17,7 +26,7 @@ const ja = {
   addPdf: 'PDF を追加',
   addImages: '画像を追加',
   adding: '追加中…',
-  addHint: '追加したページは末尾に並びます。',
+  addHint: '追加したページは末尾に、白紙のページは選んだページの後ろに並びます。',
   appended: (count: number) => `${count} ページを追加しました`,
   skippedEncrypted: (name: string) => `${name} は暗号化されているため追加できません`,
   skippedInvalid: (name: string) => `${name} は PDF として読めません`,
@@ -131,8 +140,17 @@ const ja = {
 type PdfMessages = typeof ja
 
 const en: PdfMessages = {
-  dropHere: 'Drop a PDF file here',
-  dropHint: 'Reorder, rotate, delete and extract pages, merge with other PDFs, split, export as images, or compress.',
+  newTitle: 'New PDF',
+  newEmpty:
+    'Drop PDFs or images here, or add them with the buttons below. You can also insert blank pages. Reorder, rotate and delete pages, then save.',
+  untitled: 'Untitled',
+  openPdf: 'Open a PDF to edit',
+  factContents: 'Files used',
+  addBlank: 'Blank page',
+  blankName: ({ paper, orientation }) =>
+    `Blank ${paper === 'a4' ? 'A4' : 'Letter'} ${orientation === 'portrait' ? 'portrait' : 'landscape'}`,
+  blankBadge: 'Blank',
+  blankFailed: 'Could not create a blank page',
   stepSplit: 'Split',
   factPages: 'Pages',
   factSize: 'Size',
@@ -144,7 +162,7 @@ const en: PdfMessages = {
   addPdf: 'Add PDF',
   addImages: 'Add images',
   adding: 'Adding…',
-  addHint: 'Added pages go to the end.',
+  addHint: 'Added pages go to the end; blank pages go after the selected page.',
   appended: (count) => `Added ${count} ${count === 1 ? 'page' : 'pages'}`,
   skippedEncrypted: (name) => `${name} is encrypted and cannot be added`,
   skippedInvalid: (name) => `${name} is not a readable PDF`,

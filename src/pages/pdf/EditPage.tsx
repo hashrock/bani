@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowLeft, ArrowRight, FilePlus, ImagePlus, RotateCcw, RotateCw, Trash2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ChevronDown, FilePlus, ImagePlus, RotateCcw, RotateCw, StickyNote, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { solidOnClass } from '@/lib/styles'
@@ -10,7 +16,6 @@ import { useReportUnsaved } from '../../app/leaveGuard'
 import { useLocalDrop } from '../../app/useLocalDrop'
 import type { DragItemKind } from '../../app/useLocalDrop'
 import { SidebarHead } from '../../components/BrandMark'
-import { FileUpload } from '../../components/FileUpload'
 import { SaveButton } from '../../components/SaveButton'
 import { SaveManyButton } from '../../components/SaveManyButton'
 import {
@@ -18,6 +23,7 @@ import {
   Facts,
   HistoryButtons,
   IconButton,
+  LinkButton,
   ResetSettingsButton,
   SidebarFooter,
   SmallButton,
@@ -38,20 +44,26 @@ import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import {
   applyPdfEdit,
+  BLANK_PAGE_KINDS,
+  blankPdfName,
   chunkPageRanges,
   compressImageSettings,
   compressPdf,
   createPdfRasterizer,
+  createBlankPdf,
   createPdfRecipe,
   imagesToPdf,
   isPdfError,
+  isPdfRecipeValid,
   pageImageNames,
+  parseBlankPdfName,
   parsePageRanges,
   probePdf,
   renderPageToImageFile,
   renderPagesToImages,
   renderPdf,
   splitPdf,
+  type BlankPageKind,
   type PdfEdit,
   type PdfErrorCode,
   type PdfInfo,
@@ -78,10 +90,14 @@ import { PageGrid } from './PageGrid'
 import { ThumbnailStore } from './thumbnailStore'
 import { useRasterEstimate } from './useRasterEstimate'
 
-/** レシピの source が指す入力。0 番は開いたファイルで、結合で後ろに増えるだけ（位置は変わらない） */
+/**
+ * レシピの source が指す入力。開いたファイルがあれば 0 番がそれで、結合で後ろに増えるだけ（位置は変わらない）。
+ * 新規の文書では足したものだけが並ぶ。白紙のページも 1 ページだけの PDF として入力に入れる（blank）
+ */
 interface Source {
   file: File
   info: PdfInfo
+  blank?: BlankPageKind
 }
 
 type Status = { kind: 'loading' } | { kind: 'ready' } | { kind: 'failed'; code: PdfErrorCode }
@@ -89,12 +105,17 @@ type Status = { kind: 'loading' } | { kind: 'ready' } | { kind: 'failed'; code: 
 type SplitMode = 'ranges' | 'each'
 
 const EMPTY_RECIPE: PdfRecipe = { pages: [] }
+// 残っていた作業の形の見本。新規の文書ではページが空なので、要素の形は 1 つ置いて比べる
+const SESSION_TEMPLATE: PdfRecipe = { pages: [{ source: 0, page: 0, rotate: 0 }] }
 // 一覧の 1 枠は 132px 前後。高精細な画面でもぼやけないよう 2 倍まで描く
 const THUMBNAIL_SIZE = 160 * Math.min(2, Math.max(1, globalThis.devicePixelRatio || 1))
 // 画像から作るページは、ほかの PDF と並べても違和感のない A4 にそろえる
 const IMAGE_PAGE = { pageSize: 'a4', margin: 24, orientation: 'auto' } as const
 
 const stemOf = (name: string) => name.replace(/\.pdf$/i, '') || 'document'
+/** 画像から作った PDF（imagesToPdf）は元の画像の名前を継ぐので、拡張子を問わず外す */
+const fileStem = (name: string) => name.replace(/\.[^.]+$/, '') || 'document'
+const blankKey = (kind: BlankPageKind) => blankPdfName(kind)
 
 const errorMessage = (error: unknown, pdfError: Record<PdfErrorCode, string>) =>
   isPdfError(error) ? pdfError[error.code] : error instanceof Error ? error.message : String(error)
@@ -107,13 +128,17 @@ const isImageItem = (item: DragItemKind) => item.type.startsWith('image/') && it
 const acceptsPages = (items: DragItemKind[]) =>
   items.length > 0 && items.every((item) => isPdfItem(item) || isImageItem(item))
 
-/** PDF を開き、ページの並べ替え・回転・削除・抽出、結合、分割をして保存する画面 */
+/**
+ * PDF を開き、ページの並べ替え・回転・削除・抽出、結合、分割をして保存する画面。
+ * 入口の「編集」から（ファイルなしで）来たときは空の新規の文書から始め、PDF・画像・白紙のページを足して組む
+ */
 export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange, resumed }: EditPageProps) {
   const { t } = useI18n()
   const m = useLocalMessages(messages)
   const file = opened?.file ?? null
 
-  const [status, setStatus] = useState<Status>({ kind: 'loading' })
+  // 新規の文書は読むものがないので、はじめから編集できる
+  const [status, setStatus] = useState<Status>(() => (file ? { kind: 'loading' } : { kind: 'ready' }))
   const [sources, setSources] = useState<Source[]>([])
   // 追加のたびに入力の位置を決めるので、描画を待たずに最新の並びを読めるようにする
   const sourcesRef = useRef<Source[]>([])
@@ -271,6 +296,33 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
     await withBusy('adding', () => appendImages(picked.map(({ file }) => file)))
   }
 
+  /**
+   * 白紙のページを選んだページの後ろ（選んでいなければ末尾）に入れ、そのページを選ぶ。
+   * 同じ用紙・向きの白紙は 1 つの入力を使い回す（何枚入れても入力の一覧が増えないように）
+   */
+  const addBlankPage = (kind: BlankPageKind) =>
+    withBusy('adding', async () => {
+      const at = selected.length > 0 ? Math.max(...selected) + 1 : pageCount
+      let source = sourcesRef.current.findIndex((item) => item.blank && blankKey(item.blank) === blankKey(kind))
+      if (source < 0) {
+        try {
+          const blank = await createBlankPdf(kind)
+          const info = await probePdf(blank)
+          source = sourcesRef.current.length
+          addSources([{ file: blank, info, blank: kind }])
+        } catch (error) {
+          console.error('Blank page failed:', error)
+          toast.error(m.blankFailed)
+          return
+        }
+      }
+      apply({ type: 'insertSource', source, at })
+      // 入れたページの鍵は、そこより前にある同じ白紙の数で決まる（pageKeys と同じ数え方）
+      const before = recipe.pages.slice(0, at).filter((ref) => ref.source === source && ref.page === 0).length
+      const key = `${source}:0:${before}`
+      setSelection({ keys: new Set([key]), anchor: key })
+    })
+
   // 開いている PDF のページ一覧に落とした PDF・画像は、開き直さずに末尾へ足す（PDF を追加・画像を追加と同じ）
   const pageDrop = useLocalDrop({
     enabled: status.kind === 'ready' && busy === null,
@@ -305,17 +357,20 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
     !splitRanges.ok && splitText.trim() !== '' ? m.rangeError(splitRanges.error, pageCount) : null
 
   const files = sources.map((source) => source.file)
+  // 新規の文書の名前は、最初に足したファイル（白紙を除く）から。何も足していなければ「無題」
+  const firstAdded = sources.find((source) => !source.blank)
+  const stem = file ? stemOf(file.name) : firstAdded ? fileStem(firstAdded.file.name) : m.untitled
   const usedSources = new Set(recipe.pages.map((page) => page.source))
 
   const split = (method: SaveManyMethod) =>
     withBusy('splitting', async () => {
-      if (!splitRanges.ok || !file) return
+      if (!splitRanges.ok) return
       try {
         // 分割は編集後の並びに対して行う。いったん 1 つにまとめてから範囲ごとに切り出す
         const edited = await renderPdf(files, recipe)
-        const merged = new File([edited.blob], file.name, { type: 'application/pdf' })
+        const merged = new File([edited.blob], `${stem}.pdf`, { type: 'application/pdf' })
         const parts = await splitPdf(merged, splitRanges.ranges)
-        const saved = await saveFiles(parts, method, { zipName: `${file.name.replace(/\.pdf$/i, '')}-split` })
+        const saved = await saveFiles(parts, method, { zipName: `${stem}-split` })
         toast(savedFilesMessage(t, saved))
       } catch (error) {
         if (isAbortError(error)) return
@@ -324,7 +379,6 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
       }
     })
 
-  const stem = stemOf(file?.name ?? 'document.pdf')
   const target = targetPages(recipe.pages, selected, output.scope)
   const firstUsed = sources[recipe.pages[0]?.source ?? 0]
   const originalBytes = [...usedSources].reduce((sum, source) => sum + (sources[source]?.file.size ?? 0), 0)
@@ -392,7 +446,8 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
     opened,
     // ページの編集は劣化しないので上書きが主。圧縮は画像に描き直す非可逆な保存なので別名が主
     lossless: !compressing,
-    sameFormat: usedSources.size === 1 && usedSources.has(0),
+    // 新規の文書は元がないので別名で保存が主（上書き先がない）。別名で保存した後は、その PDF への上書きが主になる
+    sameFormat: file ? usedSources.size === 1 && usedSources.has(0) : true,
     canCopy: false,
     disabled: !ready || pageCount === 0 || busy !== null,
     // 圧縮して保存した先を、PDF の上書き先にしない（逆も）。圧縮のあいだは上書き先をこちらで持つ
@@ -405,7 +460,7 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
               metadata: { title: firstUsed?.info.title, author: firstUsed?.info.author },
             })
           )
-        : renderPdf(files, recipe),
+        : renderPdf(files, recipe).then((rendered) => (file ? rendered : { ...rendered, filename: `${stem}.pdf` })),
     onSaved: (_method, handle, rendered) => {
       if (!compressing) return history.markSaved()
       setActual({ key: compressKey, bytes: rendered.blob.size })
@@ -435,29 +490,35 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [imagesMode])
   useReportUnsaved(history.dirty, onDirtyChange)
-  // 作業を残し、入口から再開できるようにする。結合した PDF（2 つ目以降の入力）も同じ並びで残す
-  const extraSources = useMemo(() => sources.slice(1).map((source) => openedFromFile(source.file)), [sources])
+  // 作業を残し、入口から再開できるようにする。結合した PDF（開いたファイルより後ろの入力）も同じ並びで残す。
+  // 新規の文書は開いたファイルがないので、白紙を含むすべての入力を extras に残す
+  const extraSources = useMemo(
+    () => sources.slice(file ? 1 : 0).map((source) => openedFromFile(source.file)),
+    [sources, file]
+  )
   useSessionRecipe('pdf', recipe, {
     opened,
     resumed,
-    enabled: !!file,
+    enabled: true,
     dirty: history.dirty,
     version: 1,
     ready,
+    template: SESSION_TEMPLATE,
     extras: extraSources,
+    label: file ? undefined : `${stem}.pdf`,
     onResume: async (saved, session) => {
       const added: Source[] = []
       for (const extra of session.extras) {
         const info = await probePdf(extra.file)
         if (info.encrypted) return
-        added.push({ file: extra.file, info })
+        // 白紙の入力は名前で見分け、続けて白紙を入れるときに使い回す
+        const blank = info.pageCount === 1 ? parseBlankPdfName(extra.file.name) : null
+        added.push({ file: extra.file, info, ...(blank && { blank }) })
       }
+      // 開発時の StrictMode では再開が 2 回走るので、足すのではなく開いたファイルの後ろを置き換える
+      sourcesRef.current = sourcesRef.current.slice(0, file ? 1 : 0)
       const all = addSources(added)
-      const fits = saved.pages.every(
-        ({ source, page }) =>
-          Number.isInteger(source) && Number.isInteger(page) && page >= 0 && page < (all[source]?.info.pageCount ?? 0)
-      )
-      if (fits) history.restore(saved)
+      if (isPdfRecipeValid(saved, all.map((source) => source.info))) history.restore(saved)
     },
   })
 
@@ -471,14 +532,77 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
     (source: number, page: number) => sources[source]?.info.pages[page],
     [sources]
   )
+  // 入力が複数あるときは、どの入力のページかを番号で示す。白紙は番号の代わりに「白紙」
   const sourceLabel = useMemo(
-    () => (sources.length > 1 ? (source: number) => `${source + 1}` : null),
-    [sources.length]
+    () =>
+      sources.length > 1 || sources.some((source) => source.blank)
+        ? (source: number) => (sources[source]?.blank ? m.blankBadge : `${source + 1}`)
+        : null,
+    [sources, m]
   )
 
   const info = sources[0]?.info
   const noSelection = selected.length === 0
   const locked = !ready || busy !== null
+
+  const sourceList = (
+    <div className="flex flex-col gap-1 border-t border-secondary pt-2">
+      <div className="text-[11px] text-muted-foreground">{file ? m.factSources : m.factContents}</div>
+      <ol className="flex flex-col gap-0.5 text-xs">
+        {sources.map((source, index) => {
+          const name = source.blank ? m.blankName(source.blank) : source.file.name
+          return (
+            <li key={index} className="flex gap-2">
+              <span className="w-4 shrink-0 text-right text-muted-foreground tabular-nums">{index + 1}</span>
+              <span className="truncate" title={name}>
+                {name}
+              </span>
+              <span className="ml-auto shrink-0 text-muted-foreground">{m.pageCount(source.info.pageCount)}</span>
+            </li>
+          )
+        })}
+      </ol>
+    </div>
+  )
+
+  // 足す操作。サイドバーと、新規の文書の空の一覧で同じものを出す
+  const addButtons = ready ? (
+    <>
+      <SmallButton onClick={() => void addPdfs()} disabled={locked}>
+        <FilePlus />
+        {busy === 'adding' ? m.adding : m.addPdf}
+      </SmallButton>
+      <SmallButton onClick={() => void addImages()} disabled={locked}>
+        <ImagePlus />
+        {m.addImages}
+      </SmallButton>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <SmallButton disabled={locked}>
+            <StickyNote />
+            {m.addBlank}
+            <ChevronDown className="text-muted-foreground" />
+          </SmallButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {BLANK_PAGE_KINDS.map((kind) => (
+            <DropdownMenuItem key={blankKey(kind)} className="text-xs" onSelect={() => void addBlankPage(kind)}>
+              {m.blankName(kind)}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  ) : (
+    <SmallButton
+      onClick={async () => {
+        const [picked] = await pickFiles({ accept: 'application/pdf' })
+        if (picked) onFiles([picked])
+      }}
+    >
+      {t.selectFile}
+    </SmallButton>
+  )
 
   return (
     <div className="app">
@@ -496,55 +620,30 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
                   {info?.title && <Fact label={m.factTitle}>{info.title}</Fact>}
                   {info?.author && <Fact label={m.factAuthor}>{info.author}</Fact>}
                 </Facts>
-                {sources.length > 1 && (
-                  <div className="flex flex-col gap-1 border-t border-secondary pt-2">
-                    <div className="text-[11px] text-muted-foreground">{m.factSources}</div>
-                    <ol className="flex flex-col gap-0.5 text-xs">
-                      {sources.map((source, index) => (
-                        <li key={index} className="flex gap-2">
-                          <span className="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
-                            {index + 1}
-                          </span>
-                          <span className="truncate" title={source.file.name}>
-                            {source.file.name}
-                          </span>
-                          <span className="ml-auto shrink-0 text-muted-foreground">
-                            {m.pageCount(source.info.pageCount)}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
+                {sources.length > 1 && sourceList}
               </div>
             ) : (
-              <StepHint>{t.inputEmpty}</StepHint>
+              <div className="flex flex-col gap-2">
+                <SourceName title={`${stem}.pdf`}>{`${stem}.pdf`}</SourceName>
+                <Facts>
+                  <Fact label={m.factPages}>{m.pageCount(pageCount)}</Fact>
+                </Facts>
+                {sources.length > 0 && sourceList}
+              </div>
             )}
 
-            <div className="flex flex-wrap gap-1.5">
-              {ready ? (
-                <>
-                  <SmallButton onClick={() => void addPdfs()} disabled={locked}>
-                    <FilePlus />
-                    {busy === 'adding' ? m.adding : m.addPdf}
-                  </SmallButton>
-                  <SmallButton onClick={() => void addImages()} disabled={locked}>
-                    <ImagePlus />
-                    {m.addImages}
-                  </SmallButton>
-                </>
-              ) : (
-                <SmallButton
-                  onClick={async () => {
-                    const [picked] = await pickFiles({ accept: 'application/pdf' })
-                    if (picked) onFiles([picked])
-                  }}
-                >
-                  {t.selectFile}
-                </SmallButton>
-              )}
-            </div>
+            <div className="flex flex-wrap gap-1.5">{addButtons}</div>
             {ready && <StepHint>{m.addHint}</StepHint>}
+            {!file && (
+              <LinkButton
+                onClick={async () => {
+                  const [picked] = await pickFiles({ accept: 'application/pdf' })
+                  if (picked) onFiles([picked])
+                }}
+              >
+                {m.openPdf}
+              </LinkButton>
+            )}
           </Step>
 
           {ready && (
@@ -690,16 +789,7 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
           className={cn('stage', (pageDrop.over || (isDragging && !ready)) && 'drop-target-active')}
           {...pageDrop.handlers}
         >
-          {!file ? (
-            <FileUpload
-              isDragging={isDragging}
-              message={m.dropHere}
-              hint={m.dropHint}
-              buttonLabel={t.selectFile}
-              accept="application/pdf"
-              onFiles={onFiles}
-            />
-          ) : status.kind === 'loading' ? (
+          {status.kind === 'loading' ? (
             <Notice>{m.loading}</Notice>
           ) : status.kind === 'failed' ? (
             <Notice title={status.code === 'encrypted' ? m.encryptedTitle : m.invalidTitle}>
@@ -730,7 +820,15 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
                   </SmallButton>
                 </div>
               </div>
-              {pageCount === 0 ? (
+              {pageCount === 0 && !file ? (
+                <div className="flex flex-1 items-center justify-center p-8">
+                  <div className="flex max-w-[420px] flex-col items-center gap-4 text-center">
+                    <h2 className="text-base font-semibold">{m.newTitle}</h2>
+                    <p className="text-[13px] leading-relaxed text-muted-foreground">{m.newEmpty}</p>
+                    <div className="flex flex-wrap justify-center gap-1.5">{addButtons}</div>
+                  </div>
+                </div>
+              ) : pageCount === 0 ? (
                 <Notice>{m.outputEmpty}</Notice>
               ) : (
                 (
