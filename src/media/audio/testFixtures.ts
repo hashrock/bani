@@ -37,6 +37,12 @@ export const audioEdit: fc.Arbitrary<AudioEdit> = fc.oneof(
   wildNumber.map((seconds) => ({ type: 'setFadeIn', seconds }) as const),
   wildNumber.map((seconds) => ({ type: 'setFadeOut', seconds }) as const),
   wildNumber.map((db) => ({ type: 'setGain', db }) as const),
+  fc
+    .record(
+      { enabled: fc.boolean(), thresholdDb: wildNumber, minDuration: wildNumber, padding: wildNumber },
+      { requiredKeys: [] }
+    )
+    .map((silence) => ({ type: 'setSilence', silence }) as const),
   fc.boolean().map((enabled) => ({ type: 'setNormalize', enabled }) as const),
   fc.boolean().map((enabled) => ({ type: 'setMono', enabled }) as const),
   fc.constant({ type: 'reset' } as const)

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
+import { playableTimeFrom } from '../../media/audio/silence'
+import type { TimeRange } from '../../media/audio/types'
 import { hasReachedEnd, playbackStart } from '../../state/playback'
 
 interface UseAudioPreviewOptions {
@@ -10,6 +12,8 @@ interface UseAudioPreviewOptions {
   /** 元ファイルの時刻での試聴の倍率（フェード × 音量 × ノーマライズ） */
   gainAt: (time: number) => number
   mono: boolean
+  /** 無音カットで残す範囲（昇順、start〜end の中）。削る範囲は飛ばして鳴らす */
+  kept: readonly TimeRange[]
 }
 
 export interface AudioPreview {
@@ -37,7 +41,10 @@ const GAIN_SMOOTHING = 0.015
  * 元ファイルを <audio> で鳴らし、Web Audio の GainNode を通して編集をおおよそ反映する試聴。
  * - フェード・音量・ノーマライズ: 再生位置に合わせて毎フレーム GainNode の倍率を差し替える
  * - モノラル化: GainNode のチャンネル数を 1 に固定し、ブラウザのダウンミックスに任せる
- * 書き出し（dsp.ts）と完全には一致しない。区間の終わりで頭に戻してループさせる。
+ * - 無音カット: 再生位置が削る範囲に入ったら、次に残す範囲の頭へ <audio> を飛ばす。
+ *   位置は毎フレーム（約 16ms）しか読めず、シークにも少し掛かるので、削る範囲の頭がわずかに漏れたり
+ *   つなぎ目に短い間が空いたりする。漏れる分は倍率を 0 にして鳴らさない（書き出しのクロスフェードは再現しない）
+ * 書き出し（dsp.ts・splice.ts）と完全には一致しない。区間の終わりで頭に戻してループさせる。
  */
 export function useAudioPreview({
   audioRef,
@@ -45,15 +52,18 @@ export function useAudioPreview({
   end,
   gainAt,
   mono,
+  kept,
 }: UseAudioPreviewOptions): AudioPreview {
   const [currentTime, setCurrentTime] = useState(0)
   const [playing, setPlaying] = useState(false)
   const graphRef = useRef<Graph | null>(null)
   const gainAtRef = useRef(gainAt)
   const startRef = useRef(start)
+  const keptRef = useRef(kept)
   useEffect(() => {
     gainAtRef.current = gainAt
     startRef.current = start
+    keptRef.current = kept
   })
 
   // AudioContext は再生のたびに作らず、最初の再生（ユーザー操作の中）で 1 度だけ作る
@@ -100,9 +110,12 @@ export function useAudioPreview({
     let frame = 0
     const tick = () => {
       let time = audio.currentTime
-      if (hasReachedEnd(time, end)) {
-        audio.currentTime = start
-        time = start
+      // 削る範囲の中なら次に残す範囲の頭へ、最後の範囲より後なら区間の頭へ戻る
+      const playable = hasReachedEnd(time, end) ? null : playableTimeFrom(keptRef.current, time)
+      const next = playable ?? keptRef.current[0]?.start ?? start
+      if (next !== time) {
+        audio.currentTime = next
+        time = next
       }
       setCurrentTime(time)
       applyGain(time)
@@ -161,12 +174,13 @@ export function useAudioPreview({
       setMono(graph.gain, mono)
     }
     // 区間の外から再生し始めると意図しない場所が流れるので頭に戻す
-    const from = playbackStart(audio.currentTime, start, end)
+    const inTrim = playbackStart(audio.currentTime, start, end)
+    const from = playableTimeFrom(kept, inTrim) ?? kept[0]?.start ?? start
     if (from !== audio.currentTime) audio.currentTime = from
     // 鳴り始めの 1 フレームを加工前の音量で鳴らさないよう、先に倍率を合わせる
     if (graph) graph.gain.gain.setValueAtTime(gainAtRef.current(from), graph.context.currentTime)
     void audio.play().catch((err) => console.warn('Playback failed:', err))
-  }, [audioRef, ensureGraph, start, end, mono])
+  }, [audioRef, ensureGraph, start, end, mono, kept])
 
   return { currentTime, playing, seek, toggle }
 }

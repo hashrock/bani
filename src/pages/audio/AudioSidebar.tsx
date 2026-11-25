@@ -28,16 +28,24 @@ import {
   AUDIO_FORMATS,
   AUDIO_FORMAT_LIST,
   MAX_GAIN_DB,
+  MAX_SILENCE_DURATION,
+  MAX_SILENCE_PADDING,
+  MAX_SILENCE_THRESHOLD_DB,
   MIN_GAIN_DB,
+  MIN_SILENCE_DURATION,
+  MIN_SILENCE_THRESHOLD_DB,
   changeAudioFormat,
   estimateRenderSize,
+  keptLength,
+  removedRanges,
   resolveSampleRate,
-  trimmedLength,
 } from '../../media/audio'
-import type { AudioEdit, AudioFormat, AudioInfo, AudioOutput, AudioRecipe } from '../../media/audio'
+import type { AudioEdit, AudioFormat, AudioInfo, AudioOutput, AudioRecipe, TimeRange } from '../../media/audio'
 import { formatBytes, formatTimecode } from '../../utils/format'
 import { bitrateChoices, effectiveRecipe } from './logic'
 import { audioMessages, formatBitrate, formatSampleRate } from './messages'
+
+type LevelsState = 'loading' | 'ready' | 'error'
 
 const FORMAT_LABEL: Record<AudioFormat, string> = {
   mp3: 'MP3',
@@ -54,6 +62,10 @@ interface AudioSidebarProps {
   file: File | null
   info: AudioInfo | null
   recipe: AudioRecipe | null
+  /** 書き出しに残す範囲（無音カットを切っていれば区間全体） */
+  kept: readonly TimeRange[]
+  /** 無音の検出に使う包絡の読み込み。読めるまで（読めなければ）画面では削る範囲を出せない */
+  levels: LevelsState
   onEdit: (edit: AudioEdit) => void
   canUndo: boolean
   canRedo: boolean
@@ -75,6 +87,8 @@ export function AudioSidebar({
   file,
   info,
   recipe,
+  kept,
+  levels,
   onEdit,
   canUndo,
   canRedo,
@@ -91,6 +105,7 @@ export function AudioSidebar({
   const { t } = useI18n()
   const m = useLocalMessages(audioMessages)
   const ready = !!info && !!recipe
+  const outputLength = keptLength(kept)
 
   return (
     <aside className="sidebar">
@@ -130,7 +145,7 @@ export function AudioSidebar({
               <div className="flex flex-wrap items-center gap-1">
                 <HistoryButtons canUndo={canUndo} canRedo={canRedo} onUndo={onUndo} onRedo={onRedo} />
               </div>
-              <EditControls info={info} recipe={recipe} onEdit={onEdit} />
+              <EditControls info={info} recipe={recipe} kept={kept} levels={levels} onEdit={onEdit} />
               <LinkButton onClick={() => onEdit({ type: 'reset' })}>{t.resetEdits}</LinkButton>
             </Step>
 
@@ -138,6 +153,7 @@ export function AudioSidebar({
               <OutputControls
                 info={info}
                 recipe={recipe}
+                outputLength={outputLength}
                 output={output}
                 onOutputChange={onOutputChange}
                 supported={supported}
@@ -147,9 +163,9 @@ export function AudioSidebar({
             <Step index={4} title={t.stepEstimate}>
               <EstimateBox>
                 <EstimateRow label={t.estimatedSize}>
-                  {formatBytes(estimateRenderSize(output, effectiveRecipe(recipe), info))}
+                  {formatBytes(estimateRenderSize(output, effectiveRecipe(recipe), info, outputLength))}
                 </EstimateRow>
-                <EstimateRow label={t.outputDuration}>{formatTimecode(trimmedLength(recipe))}</EstimateRow>
+                <EstimateRow label={t.outputDuration}>{formatTimecode(outputLength)}</EstimateRow>
               </EstimateBox>
               <StepHint>{m.previewNote}</StepHint>
             </Step>
@@ -167,14 +183,18 @@ export function AudioSidebar({
 function EditControls({
   info,
   recipe,
+  kept,
+  levels,
   onEdit,
 }: {
   info: AudioInfo
   recipe: AudioRecipe
+  kept: readonly TimeRange[]
+  levels: LevelsState
   onEdit: (edit: AudioEdit) => void
 }) {
   const m = useLocalMessages(audioMessages)
-  const length = trimmedLength(recipe)
+  const length = recipe.trim.end - recipe.trim.start
   const fadeMax = Math.max(0.1, Math.min(MAX_FADE, length))
 
   return (
@@ -223,6 +243,73 @@ function EditControls({
         disabled={info.channels === 1 && !recipe.mono}
         onChange={(enabled) => onEdit({ type: 'setMono', enabled })}
       />
+      <SilenceControls recipe={recipe} kept={kept} levels={levels} onEdit={onEdit} />
+    </div>
+  )
+}
+
+/** 無音カットのオン・オフと、入れているあいだだけ出す 3 つの値。下に削る量の見込みを出す */
+function SilenceControls({
+  recipe,
+  kept,
+  levels,
+  onEdit,
+}: {
+  recipe: AudioRecipe
+  kept: readonly TimeRange[]
+  levels: LevelsState
+  onEdit: (edit: AudioEdit) => void
+}) {
+  const m = useLocalMessages(audioMessages)
+  const { silence } = recipe
+  const removed = removedRanges(kept, recipe.trim)
+  const removedSeconds = removed.reduce((sum, r) => sum + (r.end - r.start), 0)
+  return (
+    <div className="flex flex-col gap-3">
+      <SwitchField
+        label={m.silence}
+        hint={silence.enabled ? undefined : m.silenceHint}
+        checked={silence.enabled}
+        onChange={(enabled) => onEdit({ type: 'setSilence', silence: { enabled } })}
+      />
+      {silence.enabled && (
+        <>
+          <DraftSlider
+            label={m.silenceThreshold}
+            value={silence.thresholdDb}
+            min={MIN_SILENCE_THRESHOLD_DB}
+            max={MAX_SILENCE_THRESHOLD_DB}
+            step={1}
+            format={m.dbfs}
+            onCommit={(thresholdDb) => onEdit({ type: 'setSilence', silence: { thresholdDb } })}
+          />
+          <DraftSlider
+            label={m.silenceMinDuration}
+            value={silence.minDuration}
+            min={MIN_SILENCE_DURATION}
+            max={MAX_SILENCE_DURATION}
+            step={0.1}
+            format={m.seconds}
+            onCommit={(minDuration) => onEdit({ type: 'setSilence', silence: { minDuration } })}
+          />
+          <DraftSlider
+            label={m.silencePadding}
+            value={silence.padding}
+            min={0}
+            max={MAX_SILENCE_PADDING}
+            step={0.05}
+            format={m.secondsFine}
+            onCommit={(padding) => onEdit({ type: 'setSilence', silence: { padding } })}
+          />
+          <StepHint>
+            {levels === 'ready'
+              ? m.silenceSummary(removed.length, m.seconds(removedSeconds))
+              : levels === 'error'
+                ? m.silenceUnknown
+                : m.silenceAnalyzing}
+          </StepHint>
+        </>
+      )}
     </div>
   )
 }
@@ -230,12 +317,14 @@ function EditControls({
 function OutputControls({
   info,
   recipe,
+  outputLength,
   output,
   onOutputChange,
   supported,
 }: {
   info: AudioInfo
   recipe: AudioRecipe
+  outputLength: number
   output: AudioOutput
   onOutputChange: (output: AudioOutput) => void
   supported: Readonly<Record<AudioFormat, boolean>> | null
@@ -243,7 +332,7 @@ function OutputControls({
   const m = useLocalMessages(audioMessages)
   const effective = effectiveRecipe(recipe)
   const spec = AUDIO_FORMATS[output.format]
-  const size = (next: AudioOutput) => formatBytes(estimateRenderSize(next, effective, info))
+  const size = (next: AudioOutput) => formatBytes(estimateRenderSize(next, effective, info, outputLength))
   // 元のレートがこの形式で使えなければ、実際に書き出すレート（いちばん近いもの）を見せる
   const originalRate = resolveSampleRate({ ...output, sampleRate: null }, info)
 

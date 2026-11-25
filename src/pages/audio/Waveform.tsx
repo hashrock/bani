@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
 import { applyTrim } from '../../state/trim'
-import type { AudioTrim } from '../../media/audio/types'
+import type { AudioTrim, TimeRange } from '../../media/audio/types'
 import { columnPeaks } from './logic'
 import { audioMessages } from './messages'
 
@@ -12,6 +12,8 @@ interface WaveformProps {
   /** ファイル全体のピーク列（0〜1）。読み込み中は null */
   peaks: Float32Array | null
   trim: AudioTrim
+  /** 無音カットで削る範囲（元ファイルの秒）。区間の外と同じく暗くし、斜線で区別する */
+  removed: readonly TimeRange[]
   currentTime: number
   /** 元ファイルの時刻での編集後の倍率。区間の中の波形をこの倍率で描き、編集の効き方を見せる */
   gainAt: (time: number) => number
@@ -29,12 +31,15 @@ const percent = (value: number, duration: number) =>
 
 /**
  * 画面中央の波形。元の波形を薄く、区間の中は編集（フェード・音量）を掛けた波形を濃く重ねる。
+ * 無音カットで削る範囲は gainAt が 0 になるので濃い波形が消え、さらに斜線を重ねて示す。
+ * 区間をドラッグしているあいだは、削る範囲を確定した区間のまま出す（ドラッグ中に検出し直さない）。
  * 両端のつまみで切り出し区間、それ以外の場所のドラッグで再生位置を動かす。
  */
 export function Waveform({
   duration,
   peaks,
   trim,
+  removed,
   currentTime,
   gainAt,
   loading,
@@ -187,6 +192,21 @@ export function Waveform({
           className="pointer-events-none absolute inset-y-0 right-0 bg-muted/70"
           style={{ left: percent(shown.end, duration) }}
         />
+
+        {removed.map((range) => (
+          <div
+            key={`${range.start}-${range.end}`}
+            data-silence-removed=""
+            className="pointer-events-none absolute inset-y-0 bg-muted/60"
+            style={{
+              left: percent(range.start, duration),
+              width: percent(range.end - range.start, duration),
+              backgroundImage:
+                'repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in oklab, var(--foreground) 14%, transparent) 6px 7px)',
+            }}
+            aria-hidden
+          />
+        ))}
 
         <TrimHandle
           left={percent(shown.start, duration)}

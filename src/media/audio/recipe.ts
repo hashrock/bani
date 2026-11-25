@@ -1,5 +1,13 @@
 import { MIN_RANGE, applyTrim } from '../../state/trim'
-import type { AudioEdit, AudioInfo, AudioRecipe, AudioTrim } from './types'
+import {
+  DEFAULT_SILENCE,
+  MAX_SILENCE_DURATION,
+  MAX_SILENCE_PADDING,
+  MAX_SILENCE_THRESHOLD_DB,
+  MIN_SILENCE_DURATION,
+  MIN_SILENCE_THRESHOLD_DB,
+} from './silence'
+import type { AudioEdit, AudioInfo, AudioRecipe, AudioSilence, AudioTrim } from './types'
 
 /**
  * 音声レシピの遷移。React にも mediabunny にも依存しない純粋な計算だけを置く。
@@ -8,6 +16,9 @@ import type { AudioEdit, AudioInfo, AudioRecipe, AudioTrim } from './types'
  * - 0 <= trim.start かつ trim.start + MIN_TRIM_LENGTH <= trim.end <= duration
  * - fadeIn >= 0, fadeOut >= 0, fadeIn + fadeOut <= 切り出した長さ
  * - MIN_GAIN_DB <= gainDb <= MAX_GAIN_DB
+ * - 無音カットの値はそれぞれ範囲内（しきい値・最短の長さ・残す長さ）
+ * フェードは切り出した区間の長さに収める。無音カットで書き出しが短くなっても、
+ * 書き出し側でフェードどうしが重なるだけで（小さい方を採る）、レシピは区間に対して保つ。
  * 値の変わらない編集は同じオブジェクトを返すので、履歴に空の段が積まれない。
  */
 
@@ -26,6 +37,7 @@ export function createAudioRecipe(info: AudioInfo): AudioRecipe {
     gainDb: 0,
     normalize: false,
     mono: false,
+    silence: DEFAULT_SILENCE,
   }
 }
 
@@ -43,7 +55,8 @@ export function isIdentityRecipe(recipe: AudioRecipe, info: AudioInfo): boolean 
     recipe.fadeOut === 0 &&
     recipe.gainDb === 0 &&
     !recipe.normalize &&
-    !recipe.mono
+    !recipe.mono &&
+    !recipe.silence.enabled
   )
 }
 
@@ -78,6 +91,10 @@ export function applyAudioEdit(recipe: AudioRecipe, edit: AudioEdit, info: Audio
       return edit.enabled === recipe.normalize ? recipe : { ...recipe, normalize: edit.enabled }
     case 'setMono':
       return edit.enabled === recipe.mono ? recipe : { ...recipe, mono: edit.enabled }
+    case 'setSilence': {
+      const silence = withSilence(recipe.silence, edit.silence)
+      return silence === recipe.silence ? recipe : { ...recipe, silence }
+    }
     case 'reset': {
       const initial = createAudioRecipe(info)
       return sameRecipe(recipe, initial) ? recipe : initial
@@ -97,6 +114,28 @@ function withTrim(recipe: AudioRecipe, trim: AudioTrim): AudioRecipe {
   return { ...recipe, trim, fadeIn, fadeOut }
 }
 
+/** 無音カットの設定を差し替える。非有限の値は無視し、範囲外は端に丸める。何も変わらなければ同じオブジェクト */
+function withSilence(current: AudioSilence, patch: Partial<AudioSilence>): AudioSilence {
+  const pick = (value: number | undefined, fallback: number, min: number, max: number) =>
+    value === undefined || !Number.isFinite(value) ? fallback : clamp(value, min, max)
+  const next: AudioSilence = {
+    enabled: typeof patch.enabled === 'boolean' ? patch.enabled : current.enabled,
+    thresholdDb: pick(patch.thresholdDb, current.thresholdDb, MIN_SILENCE_THRESHOLD_DB, MAX_SILENCE_THRESHOLD_DB),
+    minDuration: pick(patch.minDuration, current.minDuration, MIN_SILENCE_DURATION, MAX_SILENCE_DURATION),
+    padding: pick(patch.padding, current.padding, 0, MAX_SILENCE_PADDING),
+  }
+  return sameSilence(current, next) ? current : next
+}
+
+function sameSilence(a: AudioSilence, b: AudioSilence): boolean {
+  return (
+    a.enabled === b.enabled &&
+    a.thresholdDb === b.thresholdDb &&
+    a.minDuration === b.minDuration &&
+    a.padding === b.padding
+  )
+}
+
 /** 尺が読めない・壊れている場合は 0 に倒し、区間の計算に NaN を持ち込まない */
 function safeDuration(info: AudioInfo): number {
   return Number.isFinite(info.duration) && info.duration > 0 ? info.duration : 0
@@ -114,6 +153,7 @@ function sameRecipe(a: AudioRecipe, b: AudioRecipe): boolean {
     a.fadeOut === b.fadeOut &&
     a.gainDb === b.gainDb &&
     a.normalize === b.normalize &&
-    a.mono === b.mono
+    a.mono === b.mono &&
+    sameSilence(a.silence, b.silence)
   )
 }
