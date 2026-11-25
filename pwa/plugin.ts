@@ -18,7 +18,10 @@ const toUrlPath = (path: string) => path.split(sep).join('/')
 /** 出力のフォルダにあるのに事前キャッシュの一覧にないファイル。オフラインでは読めなくなる */
 export function findUncached(outputFiles: readonly string[], precache: readonly string[]): string[] {
   const cached = new Set(precache)
-  return outputFiles.filter((file) => !EXCLUDED.has(file) && !cached.has(file)).sort()
+  // 初めて使ったときにキャッシュするもの（isLazyAsset）は、一覧になくてよい
+  return outputFiles
+    .filter((file) => !EXCLUDED.has(file) && !cached.has(file) && !isLazyAsset(file))
+    .sort()
 }
 
 /** できあがった sw.js から事前キャッシュの一覧を読み戻す */
@@ -29,8 +32,18 @@ export function readPrecache(swSource: string): string[] {
 }
 
 /**
+ * 事前キャッシュせず、初めて使ったときにキャッシュするファイル。
+ * HEIC（libheif）と 7z・RAR（libarchive）の WASM と、それだけが使う JS で、合わせて約 2.6MB ある。
+ * 使う人が限られるのにインストールのたびに全員へ配ると重いので、開いたときに取りに行く。
+ * ファイル名はビルドで `名前-ハッシュ.拡張子` になるので、名前の部分で見分ける。
+ */
+const LAZY = /^assets\/(libheif|heifLoader|libarchive|libarchiveWorker)-[\w-]+\.(wasm|js)$/
+
+export const isLazyAsset = (fileName: string) => LAZY.test(fileName)
+
+/**
  * ビルドの出力から Service Worker を作る。
- * 出力したファイルと public/ のファイルをすべて事前キャッシュの一覧に入れ、
+ * 出力したファイルと public/ のファイルを事前キャッシュの一覧に入れ（LAZY に当たるものは後から）、
  * それらの中身から版を決めるので、何か変われば必ず新しい Service Worker になる。
  * 開発サーバーでは何もしない（HMR とキャッシュが衝突するため）。
  *
@@ -71,7 +84,9 @@ export function serviceWorker(): Plugin {
       }
 
       // 起点の URL（`./`）は index.html を返すので、一覧には index.html だけを入れる
-      precache = [...new Set(entries)].sort()
+      const all = [...new Set(entries)].sort()
+      precache = all.filter((name) => !isLazyAsset(name))
+      const lazy = all.filter(isLazyAsset)
       const version = hash.digest('hex').slice(0, 16)
 
       const template = readFileSync(new URL('./sw.js', import.meta.url), 'utf8')
@@ -80,6 +95,7 @@ export function serviceWorker(): Plugin {
         fileName: 'sw.js',
         source: template
           .replace('self.__BANI_PRECACHE__', JSON.stringify(precache))
+          .replace('self.__BANI_LAZY__', JSON.stringify(lazy))
           .replace('self.__BANI_VERSION__', JSON.stringify(version)),
       })
     },

@@ -17,6 +17,7 @@ import {
   createImageRecipe,
   defaultImageFormat,
   detectEncodableFormats,
+  isHeifUnavailable,
   renderImage,
 } from '../../media/image'
 import type { ImageEdit, ImageFormat, ImageOutput, ImageRecipe } from '../../media/image'
@@ -216,7 +217,7 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
             />
           ) : (
             <div className="preview-area text-sm text-muted-foreground">
-              {loading ? t.estimating : loadError ? m.loadFailed : null}
+              {loading ? t.estimating : loadError ? (isHeifUnavailable(loadError) ? m.heifUnavailable : m.loadFailed) : null}
             </div>
           )}
         </div>

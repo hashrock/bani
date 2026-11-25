@@ -23,6 +23,7 @@ const EXTENSIONS: Record<string, MediaKind> = {
   webp: 'image',
   avif: 'image',
   heic: 'image',
+  heif: 'image',
   bmp: 'image',
   svg: 'image',
   pdf: 'pdf',

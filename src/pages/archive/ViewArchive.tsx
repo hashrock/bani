@@ -53,6 +53,8 @@ const FORMAT_LABEL: Record<ArchiveInfo['format'], string> = {
   tar: 'tar',
   'tar.gz': 'tar.gz',
   gzip: 'gzip',
+  '7z': '7z',
+  rar: 'RAR',
 }
 
 type Probe =

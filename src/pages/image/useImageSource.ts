@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { probeImage } from '../../media/image'
+import { decodeImage, probeImage } from '../../media/image'
 import type { ImageInfo } from '../../media/image'
 
 export interface ImageSource {
@@ -27,7 +27,7 @@ export function useImageSource(file: File | null) {
     ;(async () => {
       try {
         const info = await probeImage(file)
-        const decoded = await createImageBitmap(file, { imageOrientation: 'from-image' })
+        const decoded = await decodeImage(file)
         // 待っているあいだに閉じられたら、片付けはもう済んでいるのでここで捨てる
         if (cancelled) {
           decoded.close()

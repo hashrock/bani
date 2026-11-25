@@ -1,5 +1,5 @@
 /**
- * 画像の書き出し。createImageBitmap でデコードし、Canvas に描いてエンコードし直す。
+ * 画像の書き出し。createImageBitmap（HEIC は必要なら libheif）でデコードし、Canvas に描いてエンコードし直す。
  *
  * Canvas を経由すると EXIF・GPS・XMP・テキストチャンクなどの付帯情報はすべて落ちる
  * （画素だけが残る）。つまり renderImage の結果は常に位置情報を含まない。
@@ -11,6 +11,7 @@
  */
 import { throwIfAborted } from '../../utils/abort'
 import type { RenderOptions, RenderedFile } from '../types'
+import { decodeImage } from './decode'
 import { IMAGE_FORMATS, clampQuality, outputImageFilename, searchQualityForTarget } from './output'
 import type { ImageFormat, ImageOutput } from './output'
 import { MAX_DIMENSION, computeDrawPlan, fitRecipeToImage } from './recipe'
@@ -40,7 +41,8 @@ export async function renderImage(
 ): Promise<RenderedImage> {
   const { signal, onProgress } = options
   throwIfAborted(signal)
-  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+  // ブラウザが読めない HEIC は decodeImage が libheif に回す
+  const bitmap = await decodeImage(file)
   try {
     throwIfAborted(signal)
     onProgress?.(0.2)
