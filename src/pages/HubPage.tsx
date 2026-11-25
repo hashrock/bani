@@ -1,22 +1,22 @@
-import { useRef } from 'react'
 import { buttonVariants } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import type { Capabilities } from '../app/intake'
 import { MEDIA_KINDS, formatRoute } from '../app/routes'
 import { HubLayout } from '../components/HubLayout'
+import { pickFiles } from '../core/opened'
+import type { OpenedFile } from '../core/opened'
 import { useI18n } from '../i18n/context'
 
 interface HubPageProps {
   capabilities: Capabilities
   isDragging: boolean
-  onFiles: (files: File[]) => void
+  onFiles: (files: OpenedFile[]) => void
 }
 
 /** 入口。とりあえずファイルを落とせば、種類と数に合った画面へ進む */
 export function HubPage({ capabilities, isDragging, onFiles }: HubPageProps) {
   const { t } = useI18n()
-  const inputRef = useRef<HTMLInputElement>(null)
 
   return (
     <HubLayout>
@@ -29,7 +29,10 @@ export function HubPage({ capabilities, isDragging, onFiles }: HubPageProps) {
           'flex flex-col items-center gap-3 rounded-[10px] border-2 border-dashed border-input bg-background px-6 py-14 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:border-primary focus-visible:outline-none',
           isDragging && 'border-primary bg-muted/40'
         )}
-        onClick={() => inputRef.current?.click()}
+        onClick={async () => {
+          const picked = await pickFiles({ multiple: true })
+          if (picked.length > 0) onFiles(picked)
+        }}
       >
         <span className="text-base font-semibold">{t.hubDrop}</span>
         <span className="text-center text-xs leading-relaxed text-muted-foreground">
@@ -37,17 +40,6 @@ export function HubPage({ capabilities, isDragging, onFiles }: HubPageProps) {
         </span>
         <span className={cn(buttonVariants({ variant: 'outline', size: 'xs' }), 'h-7 px-2.5')}>{t.hubPick}</span>
       </button>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        hidden
-        onChange={(e) => {
-          const selected = e.target.files
-          if (selected && selected.length > 0) onFiles(Array.from(selected))
-          e.target.value = ''
-        }}
-      />
 
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
         {MEDIA_KINDS.map((kind) => {

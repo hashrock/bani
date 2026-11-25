@@ -1,7 +1,14 @@
 /** Bani が扱うメディアの種類。画面（ルート）もこの単位で分ける */
-export type MediaKind = 'video' | 'audio' | 'image' | 'pdf' | 'text'
+export type MediaKind = 'video' | 'audio' | 'image' | 'pdf' | 'text' | 'archive'
 
-export const MEDIA_KINDS: readonly MediaKind[] = ['video', 'audio', 'image', 'pdf', 'text']
+export const MEDIA_KINDS: readonly MediaKind[] = [
+  'video',
+  'audio',
+  'image',
+  'pdf',
+  'text',
+  'archive',
+]
 
 /**
  * 画面の一覧。単体編集（1 ファイルを開いて非破壊編集して書き出す）と

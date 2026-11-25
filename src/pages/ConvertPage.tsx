@@ -1,4 +1,3 @@
-import { useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { BatchStatus } from '../components/BatchStatus'
@@ -7,6 +6,8 @@ import { FileUpload } from '../components/FileUpload'
 import { OutputSteps } from '../components/OutputSteps'
 import { ResetSettingsButton, SourceName } from '../components/SidebarParts'
 import { Step, StepHint } from '../components/Step'
+import { pickFiles } from '../core/opened'
+import type { OpenedFile } from '../core/opened'
 import { useBatchConversion } from '../hooks/useBatchConversion'
 import { useI18n } from '../i18n/context'
 import type { ConversionSettings } from '../types'
@@ -18,7 +19,7 @@ interface ConvertPageProps {
   settings: ConversionSettings
   onSettingsChange: (settings: ConversionSettings) => void
   isDragging: boolean
-  onFiles: (files: File[]) => void
+  onFiles: (files: OpenedFile[]) => void
 }
 
 /** 複数のファイルを同じ設定でまとめて書き出す画面。編集はせず、常に全体を変換する */
@@ -31,7 +32,6 @@ export function ConvertPage({
 }: ConvertPageProps) {
   const { t } = useI18n()
   const batch = useBatchConversion(settings, files)
-  const inputRef = useRef<HTMLInputElement>(null)
   const count = batch.files.length
 
   return (
@@ -41,18 +41,6 @@ export function ConvertPage({
 
         <div className="sidebar-scroll">
           <Step index={1} title={t.stepInput}>
-            <input
-              ref={inputRef}
-              type="file"
-              accept="video/*"
-              multiple
-              hidden
-              onChange={(e) => {
-                const selected = e.target.files
-                if (selected && selected.length > 0) onFiles(Array.from(selected))
-                e.target.value = ''
-              }}
-            />
             {count > 0 ? (
               <SourceName>{t.batchSelected(count)}</SourceName>
             ) : (
@@ -63,7 +51,10 @@ export function ConvertPage({
                 variant="outline"
                 size="xs"
                 className="h-7 px-2.5"
-                onClick={() => inputRef.current?.click()}
+                onClick={async () => {
+                  const picked = await pickFiles({ multiple: true, accept: 'video/*' })
+                  if (picked.length > 0) onFiles(picked)
+                }}
                 disabled={batch.running}
               >
                 {count > 0 ? t.addFiles : t.selectFiles}

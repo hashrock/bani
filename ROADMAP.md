@@ -51,6 +51,18 @@
 - 結果をコピー: 画像は PNG、テキスト・コードはそのまま、それ以外はファイルとしてコピーできるときだけ
 - 貼り付けで開く（上の「開く」と同じ）
 
+### 実装の置き場所
+
+| 役割 | 場所 |
+| --- | --- |
+| 開いたファイル（ハンドル付き）、ファイル選択、ドロップ・貼り付けの取り出し | `src/core/opened.ts` |
+| 保存の方針と、上書き・別名保存・コピー | `src/core/save.ts`、`src/core/useSave.ts`、`src/components/SaveButton.tsx` |
+| 取り消し・やり直し（⌘Z / ⇧⌘Z） | `src/core/useRecipeHistory.ts` |
+| ショートカット | `src/core/useHotkey.ts` |
+| 画面を作り直しても残す設定 | `src/core/usePersistentState.ts` |
+| 画面ごとの文言 | `src/i18n/local.ts`（各画面のフォルダに `{ ja, en }` を置く） |
+| 画面の登録 | `src/pages/registry.ts`、各メディアの `src/pages/<kind>/EditPage.tsx` と `meta.ts` |
+
 ## ルート
 
 | ルート | 画面 | 入ってくる条件 |

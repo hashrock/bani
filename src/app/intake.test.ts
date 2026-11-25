@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { detectKind, planIntake } from './intake'
+import { detectKind, planIntake, refineKind } from './intake'
 import type { Capabilities } from './intake'
 import { MEDIA_KINDS } from './routes'
 import type { MediaKind } from './routes'
@@ -20,8 +20,16 @@ describe('detectKind', () => {
     expect(detectKind({ name: 'subs.srt', type: '' })).toBe('text')
   })
 
+  it('コードはテキスト、圧縮ファイルは archive', () => {
+    expect(detectKind({ name: 'data.json', type: 'application/json' })).toBe('text')
+    expect(detectKind({ name: 'index.html', type: '' })).toBe('text')
+    expect(detectKind({ name: 'logo.svg', type: 'image/svg+xml' })).toBe('text')
+    expect(detectKind({ name: 'archive.zip', type: 'application/zip' })).toBe('archive')
+    expect(detectKind({ name: 'backup.tar.gz', type: '' })).toBe('archive')
+  })
+
   it('判定できなければ null', () => {
-    expect(detectKind({ name: 'archive.zip', type: 'application/zip' })).toBeNull()
+    expect(detectKind({ name: 'disk.iso', type: 'application/x-iso9660-image' })).toBeNull()
     expect(detectKind({ name: 'README', type: '' })).toBeNull()
   })
 })
@@ -74,5 +82,17 @@ describe('planIntake', () => {
       accepted: [0],
       rejected: [1],
     })
+  })
+})
+
+describe('refineKind', () => {
+  it('.ts は先頭が 0x47 なら動画、それ以外はコード', () => {
+    expect(refineKind('video', 'clip.ts', new Uint8Array([0x47, 0x40]))).toBe('video')
+    expect(refineKind('video', 'main.ts', new TextEncoder().encode('import'))).toBe('text')
+    expect(refineKind(null, 'empty.mts', new Uint8Array())).toBe('text')
+  })
+
+  it('.ts 以外は変えない', () => {
+    expect(refineKind('image', 'a.png', new Uint8Array([0x47]))).toBe('image')
   })
 })
