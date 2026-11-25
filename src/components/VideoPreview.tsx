@@ -1,4 +1,6 @@
 import { useMemo } from 'react'
+import { Progress } from '@/components/ui/progress'
+import { cn } from '@/lib/utils'
 import { useI18n } from '../i18n/context'
 import type { RefObject } from 'react'
 import type { ConversionResult } from '../types'
@@ -50,7 +52,7 @@ export function VideoPreview({
   const isGifResult = result?.filename.endsWith('.gif') ?? false
 
   return (
-    <main className={`preview-area ${isDragging ? 'dragging' : ''}`}>
+    <main className={cn('preview-area', isDragging && 'drop-target-active')}>
       <video
         ref={videoRef}
         src={originalUrl}
@@ -65,7 +67,7 @@ export function VideoPreview({
           <img
             src={previewUrl}
             alt={t.convertedGifAlt}
-            className="preview-video preview-video-after"
+            className="preview-video"
             style={{
               opacity: showAfter ? 1 : 0,
               pointerEvents: showAfter ? 'auto' : 'none',
@@ -75,7 +77,7 @@ export function VideoPreview({
           <video
             src={previewUrl}
             controls
-            className="preview-video preview-video-after"
+            className="preview-video"
             style={{
               opacity: showAfter ? 1 : 0,
               pointerEvents: showAfter ? 'auto' : 'none',
@@ -84,15 +86,24 @@ export function VideoPreview({
         ))}
 
       {converting && (
-        <div className="conversion-overlay">
-          <div className="conversion-progress">
-            <div className="conversion-progress-bar" style={{ width: `${progress}%` }} />
-          </div>
-          <div className="conversion-text">{progress}%</div>
+        // 映像の上に重ねるので、地の色に関係なく読めるよう黒い板に白で描く
+        <div className="absolute top-1/2 left-1/2 z-10 min-w-[200px] -translate-1/2 rounded-xl bg-black/80 px-10 py-6 text-white">
+          <Progress
+            value={progress}
+            className="mb-3 bg-white/20 **:data-[slot=progress-indicator]:bg-white"
+          />
+          <div className="text-center text-lg font-semibold tabular-nums">{progress}%</div>
         </div>
       )}
 
-      {error && <div className="error-message">{error}</div>}
+      {error && (
+        <div
+          role="alert"
+          className="absolute top-5 left-1/2 z-20 -translate-x-1/2 rounded-md border border-destructive bg-background px-5 py-3 text-[13px] text-destructive shadow-md"
+        >
+          {error}
+        </div>
+      )}
     </main>
   )
 }

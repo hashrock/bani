@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Input } from '@/components/ui/input'
 import { formatTimecode, parseTimecode } from '../utils/format'
 
 interface TimeFieldProps {
@@ -26,11 +27,12 @@ export function TimeField({ label, value, onChange }: TimeFieldProps) {
   }
 
   return (
-    <label className="time-field">
-      <span className="time-field-label">{label}</span>
-      <input
+    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <span className="tracking-[0.3px] uppercase">{label}</span>
+      <Input
         type="text"
         inputMode="decimal"
+        className="h-7 w-[84px] px-2 text-xs text-foreground tabular-nums md:text-xs"
         value={text}
         onFocus={() => setDraft(formatTimecode(value))}
         onChange={(e) => setDraft(e.target.value)}

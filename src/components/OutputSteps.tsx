@@ -1,7 +1,15 @@
+import type { ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Slider } from '@/components/ui/slider'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { solidOnClass } from '@/lib/styles'
+import { cn } from '@/lib/utils'
 import type { Messages } from '../i18n/messages'
 import { useI18n } from '../i18n/context'
 import type { ConversionSettings, OutputFormat } from '../types'
-import { Step } from './Step'
+import { Step, StepHint } from './Step'
 
 /** 文言のうち、そのまま表示できる（引数を取らない）ものの名前 */
 type TextKey = {
@@ -18,6 +26,16 @@ const FORMATS: { value: OutputFormat; label: string; hint: TextKey }[] = [
 const HEIGHT_PRESETS = [1080, 720, 480, 360]
 
 const evenNumber = (value: number) => Math.max(2, Math.round(value / 2) * 2)
+
+/** スライダーの見出し行（名前と現在値） */
+function FieldHead({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex justify-between text-xs text-muted-foreground">
+      <span>{label}</span>
+      <span className="font-semibold text-foreground">{value}</span>
+    </div>
+  )
+}
 
 interface OutputStepsProps {
   /** 最初の手順に振る番号 */
@@ -52,112 +70,157 @@ export function OutputSteps({
   return (
     <>
       <Step index={startIndex} title={t.stepFormat}>
-        <div className="segmented">
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          spacing={0}
+          className="w-full"
+          value={settings.format}
+          onValueChange={(value) => {
+            // 押し直しで選択が外れないよう、空の値は無視する
+            const format = FORMATS.find((item) => item.value === value)
+            if (!format) return
+            onSettingsChange({
+              ...settings,
+              format: format.value,
+              fps: format.value === 'gif' ? (settings.fps ?? 10) : settings.fps,
+            })
+          }}
+        >
           {FORMATS.map((format) => (
-            <button
+            <ToggleGroupItem
               key={format.value}
-              className={`segment ${settings.format === format.value ? 'active' : ''}`}
-              onClick={() =>
-                onSettingsChange({
-                  ...settings,
-                  format: format.value,
-                  fps: format.value === 'gif' ? (settings.fps ?? 10) : settings.fps,
-                })
-              }
+              value={format.value}
+              size="sm"
+              className={cn('flex-1 text-xs', solidOnClass)}
             >
               {format.label}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
-        {currentFormat && <p className="step-hint">{t[currentFormat.hint]}</p>}
+        </ToggleGroup>
+        {currentFormat && <StepHint>{t[currentFormat.hint]}</StepHint>}
       </Step>
 
       <Step index={startIndex + 1} title={settings.format === 'gif' ? t.stepFps : t.stepQuality}>
         {settings.format === 'gif' ? (
-          <div className="field">
-            <div className="field-head">
-              <span>{t.fpsLabel}</span>
-              <span className="field-value">{settings.fps ?? 10}</span>
-            </div>
-            <input
-              type="range"
-              min="1"
-              max="30"
-              value={settings.fps ?? 10}
-              onChange={(e) => onSettingsChange({ ...settings, fps: Number(e.target.value) })}
+          <div className="flex flex-col gap-2">
+            <FieldHead label={t.fpsLabel} value={settings.fps ?? 10} />
+            <Slider
+              min={1}
+              max={30}
+              value={[settings.fps ?? 10]}
+              onValueChange={([fps]) => onSettingsChange({ ...settings, fps })}
+              aria-label={t.fpsLabel}
             />
-            <p className="step-hint">{t.fpsHint}</p>
+            <StepHint>{t.fpsHint}</StepHint>
           </div>
         ) : (
-          <div className="field">
-            <div className="field-head">
-              <span>{t.qualityLabel}</span>
-              <span className="field-value">{settings.quality}%</span>
-            </div>
-            <input
-              type="range"
-              min="1"
-              max="100"
-              value={settings.quality}
-              onChange={(e) => onSettingsChange({ ...settings, quality: Number(e.target.value) })}
+          <div className="flex flex-col gap-2">
+            <FieldHead label={t.qualityLabel} value={`${settings.quality}%`} />
+            <Slider
+              min={1}
+              max={100}
+              value={[settings.quality]}
+              onValueChange={([quality]) => onSettingsChange({ ...settings, quality })}
+              aria-label={t.qualityLabel}
             />
-            <p className="step-hint">{t.qualityHint}</p>
+            <StepHint>{t.qualityHint}</StepHint>
           </div>
         )}
       </Step>
 
       <Step index={startIndex + 2} title={t.stepResolution}>
         {dimensions && (
-          <div className="preset-row">
-            <button
-              className={`chip ${!settings.width && !settings.height ? 'active' : ''}`}
+          <div className="flex flex-wrap gap-1.5">
+            <PresetChip
+              active={!settings.width && !settings.height}
               onClick={() => onSettingsChange({ ...settings, width: undefined, height: undefined })}
             >
               {t.originalSize}
-            </button>
+            </PresetChip>
             {HEIGHT_PRESETS.filter((height) => height < dimensions.height).map((height) => (
-              <button
+              <PresetChip
                 key={height}
-                className={`chip ${isPresetActive(height) ? 'active' : ''}`}
+                active={isPresetActive(height)}
                 onClick={() => applyHeightPreset(height)}
               >
                 {height}p
-              </button>
+              </PresetChip>
             ))}
           </div>
         )}
-        <div className="dimension-row">
-          <label className="dimension-field">
-            <span>{t.width}</span>
-            <input
-              type="number"
-              placeholder={t.auto}
-              value={settings.width || ''}
-              onChange={(e) =>
-                onSettingsChange({
-                  ...settings,
-                  width: e.target.value ? Number(e.target.value) : undefined,
-                })
-              }
-            />
-          </label>
-          <span className="dimension-times">×</span>
-          <label className="dimension-field">
-            <span>{t.height}</span>
-            <input
-              type="number"
-              placeholder={t.auto}
-              value={settings.height || ''}
-              onChange={(e) =>
-                onSettingsChange({
-                  ...settings,
-                  height: e.target.value ? Number(e.target.value) : undefined,
-                })
-              }
-            />
-          </label>
+        <div className="flex items-end gap-1.5">
+          <DimensionField
+            id="output-width"
+            label={t.width}
+            placeholder={t.auto}
+            value={settings.width}
+            onChange={(width) => onSettingsChange({ ...settings, width })}
+          />
+          <span className="pb-2 text-input">×</span>
+          <DimensionField
+            id="output-height"
+            label={t.height}
+            placeholder={t.auto}
+            value={settings.height}
+            onChange={(height) => onSettingsChange({ ...settings, height })}
+          />
         </div>
       </Step>
     </>
+  )
+}
+
+/** 解像度のプリセット。プリセットは同時に 1 つしか当たらないが、手入力で外れることもあるので押しボタンにしている */
+function PresetChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <Button
+      variant={active ? 'default' : 'outline'}
+      size="xs"
+      className="rounded-full px-2.5 text-[11px]"
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
+  )
+}
+
+/** 幅・高さの入力。空欄は「元に合わせて自動」を表す */
+function DimensionField({
+  id,
+  label,
+  placeholder,
+  value,
+  onChange,
+}: {
+  id: string
+  label: string
+  placeholder: string
+  value: number | undefined
+  onChange: (value: number | undefined) => void
+}) {
+  return (
+    <div className="flex flex-1 flex-col gap-1">
+      <Label htmlFor={id} className="text-[11px] font-normal text-muted-foreground">
+        {label}
+      </Label>
+      <Input
+        id={id}
+        type="number"
+        className="h-8 px-2 text-[13px] md:text-[13px]"
+        placeholder={placeholder}
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
+      />
+    </div>
   )
 }

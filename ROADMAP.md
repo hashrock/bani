@@ -107,12 +107,12 @@ src/
 
 ゴール: 音声以降の画面を最初から共通の部品で組めるようにする。見た目と操作は今の動画画面を保つ。
 
-- [ ] Tailwind CSS（`@tailwindcss/vite`）と shadcn/ui の導入（`components.json`、`@/` の import エイリアス）
+- [x] Tailwind CSS（`@tailwindcss/vite`）と shadcn/ui の導入（`components.json`、`@/` の import エイリアス）
 - [ ] 配色・角丸・余白を CSS 変数のトークンにまとめる（ダークモードに備える。サービス切り替えの `theme` も合わせる）
-- [ ] 今の部品を置き換える: ボタン → Button、出力形式 → ToggleGroup、画質・FPS → Slider、解像度 → Input、進捗 → Progress、通知 → Sonner、入口のメディア一覧 → Card、詳細の開閉 → Collapsible
-- [ ] 一括変換の一覧（`BatchStatus` のインラインスタイル）を Table か Card の一覧に作り直す
-- [ ] `App.css` を、レイアウトと shadcn/ui で表せない部分（タイムライン、プレビュー）だけに減らす
-- [ ] オフラインの原則を守る: フォントやアイコンは同梱し、Google Fonts などの CDN は使わない（shadcn/ui は部品をリポジトリにコピーする方式なので実行時の外部依存は増えない）
+- [x] 今の部品を置き換える: ボタン → Button、出力形式 → ToggleGroup、画質・FPS → Slider、解像度 → Input、進捗 → Progress、通知 → Sonner、入口のメディア一覧 → Card、詳細の開閉 → Collapsible
+- [x] 一括変換の一覧（`BatchStatus` のインラインスタイル）を Table か Card の一覧に作り直す
+- [x] `App.css` を、レイアウトと shadcn/ui で表せない部分（タイムライン、プレビュー）だけに減らす
+- [x] オフラインの原則を守る: フォントやアイコンは同梱し、Google Fonts などの CDN は使わない（shadcn/ui は部品をリポジトリにコピーする方式なので実行時の外部依存は増えない）
 
 ## Phase 2: 非破壊編集モデルの確立（動画）
 
