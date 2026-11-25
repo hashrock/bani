@@ -18,6 +18,8 @@ export type Route =
   | { name: 'hub' }
   | { name: 'edit'; kind: MediaKind }
   | { name: 'convert' }
+  /** Bani について（何をするか・版・ライセンスの一覧） */
+  | { name: 'about' }
   /** path は `/a/b` の形に正規化してある */
   | { name: 'notFound'; path: string }
 
@@ -33,6 +35,7 @@ export function parseHash(hash: string): Route {
 
   if (segments.length === 0) return { name: 'hub' }
   if (segments.length === 1 && segments[0] === 'convert') return { name: 'convert' }
+  if (segments.length === 1 && segments[0] === 'about') return { name: 'about' }
   if (segments.length === 2 && segments[0] === 'edit' && isMediaKind(segments[1])) {
     return { name: 'edit', kind: segments[1] }
   }
@@ -48,6 +51,8 @@ export function formatRoute(route: Route): string {
       return `#/edit/${route.kind}`
     case 'convert':
       return '#/convert'
+    case 'about':
+      return '#/about'
     case 'notFound':
       return `#${route.path}`
   }

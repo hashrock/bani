@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
 import { SidebarHead } from '../../components/BrandMark'
+import { PresetPicker } from '../../components/PresetPicker'
 import { SaveButton } from '../../components/SaveButton'
 import {
   Chip,
@@ -150,6 +151,8 @@ export function AudioSidebar({
             </Step>
 
             <Step index={3} title={t.stepOutput}>
+              {/* この環境で書き出せない形式のプリセットは、画面側の usableOutput が使える形式へ戻す */}
+              <PresetPicker kind="audio" scope="audio" value={output} onChange={onOutputChange} />
               <OutputControls
                 info={info}
                 recipe={recipe}

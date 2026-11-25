@@ -239,19 +239,66 @@
     }
   }
 
+  /*
+   * ===== 押しやすさ: 小さな文字リンクと絵だけの小さなボタン =====
+   * 見た目（文字の大きさ・並び）は変えずに、透明な ::after で押せる範囲だけを縦に広げる。
+   * 共通の部品（LinkButton・ResetSettingsButton は variant=link、見出しの道具は icon-xs）に効くので、画面ごとには直さない。
+   * 部品でない文字リンクには .hit-area を付ける。横は隣の操作と重ならないよう控えめにする
+   */
+  @media (pointer: coarse), (max-width: 860px) {
+    .hit-area,
+    [data-slot='button'][data-variant='link'],
+    [data-slot='button'][data-size='icon-xs'],
+    [data-slot='toggle-group-item'] {
+      position: relative;
+    }
+
+    .hit-area::after,
+    [data-slot='button'][data-variant='link']::after,
+    [data-slot='button'][data-size='icon-xs']::after {
+      content: '';
+      position: absolute;
+      inset: -10px -4px;
+    }
+
+    /* 言語の切り替えは隙間なく並ぶので、縦にだけ広げる */
+    [data-slot='toggle-group-item']::after {
+      content: '';
+      position: absolute;
+      inset: -9px 0;
+    }
+  }
+
   /* ===== Responsive: 狭い画面ではサイドバーを下に回す ===== */
   @media (max-width: 860px) {
     .app {
       flex-direction: column-reverse;
     }
 
-    /* 携帯のブラウザはアドレスバーの出し入れで vh が変わるので、見えている高さ（dvh）で測る */
+    /*
+     * 携帯のブラウザはアドレスバーの出し入れで vh が変わるので、見えている高さ（dvh）で測る。
+     * 低い枠の中で見出し・手順・保存がそれぞれ場所を取ると手順がほとんど見えないので、
+     * サイドバー全体を 1 つのスクロールにし、見出しは手順と一緒に流して、保存の欄だけを下端に貼り付ける
+     */
     .sidebar {
       width: 100%;
       border-right: none;
       border-top: 1px solid var(--border);
       max-height: 45vh;
       max-height: 45dvh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .sidebar-scroll {
+      flex: none;
+      overflow: visible;
+    }
+
+    .sidebar-footer {
+      position: sticky;
+      bottom: 0;
+      z-index: 1;
     }
 
     /* タイムラインを 2 段目に回して幅いっぱいに使う（1 段目は再生・時刻・区間の長さ） */
@@ -276,6 +323,22 @@
     .result-actions {
       margin-left: 0;
       flex-wrap: wrap;
+    }
+  }
+
+  /*
+   * タブレットの縦向き（768px など）では、幅いっぱいの 1 段だとスライダーや選択肢が横に伸びすぎて読みにくい。
+   * 手順を 2 段に流し込み、1 段の幅をサイドバー本来の幅に近づける（手順の途中では段を分けない）
+   */
+  @media (min-width: 600px) and (max-width: 860px) {
+    .sidebar-scroll {
+      columns: 2;
+      column-gap: 0;
+      column-rule: 1px solid var(--secondary);
+    }
+
+    .sidebar-scroll > * {
+      break-inside: avoid;
     }
   }
 }

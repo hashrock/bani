@@ -2,11 +2,13 @@ import { buttonVariants } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import type { Capabilities } from '../app/intake'
+import { shellMessages } from '../app/messages'
 import { MEDIA_KINDS, formatRoute } from '../app/routes'
 import { HubLayout } from '../components/HubLayout'
 import { pickFiles } from '../core/opened'
 import type { OpenedFile } from '../core/opened'
 import { useI18n } from '../i18n/context'
+import { useLocalMessages } from '../i18n/local'
 
 interface HubPageProps {
   capabilities: Capabilities
@@ -17,6 +19,7 @@ interface HubPageProps {
 /** 入口。とりあえずファイルを落とせば、種類と数に合った画面へ進む */
 export function HubPage({ capabilities, isDragging, onFiles }: HubPageProps) {
   const { t } = useI18n()
+  const shell = useLocalMessages(shellMessages)
 
   return (
     <HubLayout>
@@ -60,12 +63,12 @@ export function HubPage({ capabilities, isDragging, onFiles }: HubPageProps) {
                 {available ? (
                   <span className="flex shrink-0 gap-2.5 text-xs whitespace-nowrap">
                     {canEdit && (
-                      <a className="underline underline-offset-2" href={formatRoute({ name: 'edit', kind })}>
+                      <a className="hit-area underline underline-offset-2" href={formatRoute({ name: 'edit', kind })}>
                         {t.hubEdit}
                       </a>
                     )}
                     {canConvert && (
-                      <a className="underline underline-offset-2" href={formatRoute({ name: 'convert' })}>
+                      <a className="hit-area underline underline-offset-2" href={formatRoute({ name: 'convert' })}>
                         {t.hubConvert}
                       </a>
                     )}
@@ -78,6 +81,12 @@ export function HubPage({ capabilities, isDragging, onFiles }: HubPageProps) {
           )
         })}
       </ul>
+
+      <footer className="mt-auto pt-4 text-center text-xs text-muted-foreground">
+        <a className="hit-area underline underline-offset-2 hover:text-foreground" href={formatRoute({ name: 'about' })}>
+          {shell.aboutLink}
+        </a>
+      </footer>
     </HubLayout>
   )
 }
