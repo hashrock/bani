@@ -98,7 +98,14 @@ const ja = {
   hubEdit: '編集',
   hubConvert: '一括変換',
   hubComingSoon: '準備中',
-  kindLabel: { video: '動画', audio: '音声', image: '画像', pdf: 'PDF', text: 'テキスト' },
+  kindLabel: {
+    video: '動画',
+    audio: '音声',
+    image: '画像',
+    pdf: 'PDF',
+    text: 'テキスト・コード',
+    archive: '圧縮ファイル',
+  },
 
   // Routing
   comingSoonTitle: (kind: string) => `${kind}の編集は準備中です`,
@@ -114,6 +121,18 @@ const ja = {
   errorConversionFailed: '変換に失敗しました',
   errorFolderCancelled: '保存先の選択を中止しました',
   errorFolderFailed: '保存先フォルダを選べませんでした',
+
+  // Save（共通の操作モデル）
+  saveOverwrite: '上書き保存',
+  saveAs: '別名で保存',
+  saveCopyToClipboard: 'クリップボードにコピー',
+  saveMore: 'ほかの保存方法',
+  saving: '保存中…',
+  savedTo: (name: string) => `${name} に保存しました`,
+  copiedToClipboard: 'クリップボードにコピーしました',
+  saveFailed: (message: string) => `保存できませんでした: ${message}`,
+  undo: '取り消す',
+  redo: 'やり直す',
 
   // Batch
   batchEmpty: 'ファイルをドロップするか、下のボタンから選択します。',
@@ -220,7 +239,14 @@ const en: Messages = {
   hubEdit: 'Edit',
   hubConvert: 'Batch convert',
   hubComingSoon: 'Coming soon',
-  kindLabel: { video: 'Video', audio: 'Audio', image: 'Image', pdf: 'PDF', text: 'Text' },
+  kindLabel: {
+    video: 'Video',
+    audio: 'Audio',
+    image: 'Image',
+    pdf: 'PDF',
+    text: 'Text & code',
+    archive: 'Archive',
+  },
 
   comingSoonTitle: (kind: string) => `${kind} editing is coming soon`,
   comingSoonBody: 'Support is being added step by step, following the roadmap.',
@@ -234,6 +260,17 @@ const en: Messages = {
   errorConversionFailed: 'Conversion failed',
   errorFolderCancelled: 'Folder selection was cancelled',
   errorFolderFailed: 'Failed to select output folder',
+
+  saveOverwrite: 'Save',
+  saveAs: 'Save as…',
+  saveCopyToClipboard: 'Copy to clipboard',
+  saveMore: 'More ways to save',
+  saving: 'Saving…',
+  savedTo: (name: string) => `Saved to ${name}`,
+  copiedToClipboard: 'Copied to clipboard',
+  saveFailed: (message: string) => `Could not save: ${message}`,
+  undo: 'Undo',
+  redo: 'Redo',
 
   batchEmpty: 'Drop files here, or pick them with the button below.',
   batchStatus: (completed: number, total: number, errors: number) =>

@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
+import { collectDropped } from '../core/opened'
+import type { OpenedFile } from '../core/opened'
 
 const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
 
@@ -8,7 +10,7 @@ const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
  * 子要素をまたぐたびに dragenter / dragleave が飛ぶので、入った回数を数えて
  * 本当に外へ出たときだけ表示を戻す。
  */
-export function useFileDrop(onFiles: (files: File[]) => void) {
+export function useFileDrop(onFiles: (files: OpenedFile[]) => void) {
   const [isDragging, setIsDragging] = useState(false)
   const depthRef = useRef(0)
 
@@ -36,8 +38,10 @@ export function useFileDrop(onFiles: (files: File[]) => void) {
       e.preventDefault()
       depthRef.current = 0
       setIsDragging(false)
-      const files = Array.from(e.dataTransfer.files)
-      if (files.length > 0) onFiles(files)
+      // ハンドル（上書き保存に使う）はイベントの中で取り出しておかないと消える
+      void collectDropped(e.dataTransfer).then((files) => {
+        if (files.length > 0) onFiles(files)
+      })
     },
     [onFiles]
   )

@@ -1,4 +1,8 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
+import { pickFiles } from '../core/opened'
+import type { SaveState } from '../core/useSave'
+import { SaveButton } from './SaveButton'
+import type { OpenedFile } from '../core/opened'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -20,7 +24,7 @@ interface SidebarProps {
   media: MediaInfo | null
   settings: ConversionSettings
   onSettingsChange: (settings: ConversionSettings) => void
-  onFileSelect: (file: File) => void
+  onFileSelect: (file: OpenedFile) => void
   onResetSettings: () => void
   previewEstimate: PreviewEstimate
   converting: boolean
@@ -29,7 +33,7 @@ interface SidebarProps {
   stale: boolean
   onConvert: () => void
   onCancel: () => void
-  onDownload: () => void
+  save: SaveState
 }
 
 /** 名前と値を左右に振り分けた 1 行 */
@@ -63,10 +67,9 @@ export function Sidebar({
   stale,
   onConvert,
   onCancel,
-  onDownload,
+  save,
 }: SidebarProps) {
   const { t, lang } = useI18n()
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
 
   const dimensions = media?.dimensions ?? null
@@ -78,17 +81,6 @@ export function Sidebar({
 
       <div className="sidebar-scroll">
         <Step index={1} title={t.stepInput}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/*"
-            hidden
-            onChange={(e) => {
-              const selected = e.target.files?.[0]
-              if (selected) onFileSelect(selected)
-              e.target.value = ''
-            }}
-          />
 
           {file ? (
             <div className="flex flex-col gap-2">
@@ -127,7 +119,10 @@ export function Sidebar({
           )}
 
           <div className="flex gap-1.5">
-            <Button variant="outline" size="xs" className="h-7 px-2.5" onClick={() => fileInputRef.current?.click()}>
+            <Button variant="outline" size="xs" className="h-7 px-2.5" onClick={async () => {
+                const [picked] = await pickFiles({ accept: 'video/*' })
+                if (picked) onFileSelect(picked)
+              }}>
               {t.selectFile}
             </Button>
           </div>
@@ -180,11 +175,7 @@ export function Sidebar({
             <Button className="w-full" onClick={onConvert} disabled={!file}>
               {hasResult ? (stale ? t.reconvertLong : t.convertAgain) : t.convert}
             </Button>
-            {hasResult && (
-              <Button variant="outline" className="w-full border-primary" onClick={onDownload}>
-                {t.download}
-              </Button>
-            )}
+            {hasResult && <SaveButton save={save} />}
           </>
         )}
       </div>

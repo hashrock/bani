@@ -26,18 +26,81 @@ const EXTENSIONS: Record<string, MediaKind> = {
   bmp: 'image',
   svg: 'image',
   pdf: 'pdf',
+  // テキスト・コード（エディタとして開く）
   txt: 'text',
   md: 'text',
+  markdown: 'text',
   csv: 'text',
   tsv: 'text',
   json: 'text',
+  jsonc: 'text',
   srt: 'text',
   vtt: 'text',
+  html: 'text',
+  htm: 'text',
+  css: 'text',
+  scss: 'text',
+  js: 'text',
+  mjs: 'text',
+  cjs: 'text',
+  jsx: 'text',
+  tsx: 'text',
+  xml: 'text',
+  yaml: 'text',
+  yml: 'text',
+  toml: 'text',
+  ini: 'text',
+  log: 'text',
+  sh: 'text',
+  py: 'text',
+  rb: 'text',
+  go: 'text',
+  rs: 'text',
+  java: 'text',
+  c: 'text',
+  h: 'text',
+  cpp: 'text',
+  sql: 'text',
+  // 圧縮ファイル
+  zip: 'archive',
+  gz: 'archive',
+  tgz: 'archive',
+  tar: 'archive',
+  '7z': 'archive',
+  rar: 'archive',
 }
+
+/** text/ 以外でテキストとして扱う MIME（JSON や JS は application/ で来る） */
+const TEXT_MIMES = new Set([
+  'application/json',
+  'application/javascript',
+  'application/x-javascript',
+  'application/xml',
+  'application/x-yaml',
+  'application/yaml',
+  'application/toml',
+  'application/x-sh',
+  'application/sql',
+  'image/svg+xml',
+])
+
+const ARCHIVE_MIMES = new Set([
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/gzip',
+  'application/x-gzip',
+  'application/x-tar',
+  'application/x-7z-compressed',
+  'application/vnd.rar',
+  'application/x-rar-compressed',
+])
 
 /** MIME → 拡張子 の順に種類を判定する。わからなければ null */
 export function detectKind(file: { name: string; type: string }): MediaKind | null {
   const mime = file.type.toLowerCase()
+  // SVG は画像だがテキストとして編集するほうが役に立つ。拡張子 ts は動画（MPEG-TS）と取り合うので MIME を優先する
+  if (TEXT_MIMES.has(mime)) return 'text'
+  if (ARCHIVE_MIMES.has(mime)) return 'archive'
   if (mime.startsWith('video/')) return 'video'
   if (mime.startsWith('audio/')) return 'audio'
   if (mime.startsWith('image/')) return 'image'
@@ -87,4 +150,23 @@ export function planIntake(
   })
   if (accepted.length === 0) return null
   return { route: { name: 'convert' }, accepted, rejected }
+}
+
+/** 拡張子 .ts / .mts は TypeScript と MPEG-TS（動画）で取り合う */
+const AMBIGUOUS_TS = /\.(ts|mts|cts)$/i
+/** MPEG-TS のパケットは必ずこの同期バイトで始まる */
+const MPEG_TS_SYNC = 0x47
+
+/** 先頭バイトから .ts の正体を決める。それ以外のファイルは detectKind のまま */
+export function refineKind(kind: MediaKind | null, name: string, head: Uint8Array): MediaKind | null {
+  if (!AMBIGUOUS_TS.test(name)) return kind
+  return head[0] === MPEG_TS_SYNC ? 'video' : 'text'
+}
+
+/** detectKind に、読まないと決められないもの（.ts）の判定を足す */
+export async function detectKindAsync(file: File): Promise<MediaKind | null> {
+  const kind = detectKind(file)
+  if (!AMBIGUOUS_TS.test(file.name)) return kind
+  const head = new Uint8Array(await file.slice(0, 1).arrayBuffer())
+  return refineKind(kind, file.name, head)
 }

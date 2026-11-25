@@ -12,6 +12,8 @@ import type { ConversionResult, ConversionSettings, Trim } from '../types'
 import { formatBytes, formatTimecode } from '../utils/format'
 import { TimeField } from './TimeField'
 import { Timeline } from './Timeline'
+import type { SaveState } from '../core/useSave'
+import { SaveButton } from './SaveButton'
 
 interface BottomBarProps {
   file: File
@@ -28,7 +30,7 @@ interface BottomBarProps {
   stale: boolean
   onConvert: () => void
   onCancel: () => void
-  onDownload: () => void
+  save: SaveState
 }
 
 /**
@@ -48,7 +50,7 @@ export function BottomBar({
   stale,
   onConvert,
   onCancel,
-  onDownload,
+  save,
 }: BottomBarProps) {
   const { t } = useI18n()
   const trim = trimFromSettings(settings, duration)
@@ -214,9 +216,7 @@ export function BottomBar({
               >
                 {stale ? `● ${t.reconvert}` : t.reconvert}
               </Button>
-              <Button variant="outline" size="sm" className="border-primary" onClick={onDownload}>
-                {t.download}
-              </Button>
+              <SaveButton save={save} className="w-auto" />
             </>
           )}
         </div>

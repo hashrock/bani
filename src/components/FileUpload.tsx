@@ -1,6 +1,7 @@
-import { useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { pickFiles } from '../core/opened'
+import type { OpenedFile } from '../core/opened'
 
 interface FileUploadProps {
   isDragging: boolean
@@ -9,7 +10,7 @@ interface FileUploadProps {
   hint?: string
   accept?: string
   multiple?: boolean
-  onFiles: (files: File[]) => void
+  onFiles: (files: OpenedFile[]) => void
 }
 
 /**
@@ -25,22 +26,8 @@ export function FileUpload({
   multiple = false,
   onFiles,
 }: FileUploadProps) {
-  const inputRef = useRef<HTMLInputElement>(null)
-
   return (
     <div className={cn('preview-area', isDragging && 'drop-target-active')}>
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        multiple={multiple}
-        hidden
-        onChange={(e) => {
-          const selected = e.target.files
-          if (selected && selected.length > 0) onFiles(Array.from(selected))
-          e.target.value = ''
-        }}
-      />
 
       <div className="flex flex-col items-center gap-4">
         <div className="text-base text-muted-foreground">{message}</div>
@@ -49,7 +36,10 @@ export function FileUpload({
             {hint}
           </p>
         )}
-        <Button variant="outline" size="xs" className="h-7 px-2.5" onClick={() => inputRef.current?.click()}>
+        <Button variant="outline" size="xs" className="h-7 px-2.5" onClick={async () => {
+            const picked = await pickFiles({ multiple, accept })
+            if (picked.length > 0) onFiles(picked)
+          }}>
           {buttonLabel}
         </Button>
       </div>
