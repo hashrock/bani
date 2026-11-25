@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
+import { toast } from 'sonner'
 import './App.css'
 import { detectKind, planIntake } from './app/intake'
 import type { Capabilities } from './app/intake'
@@ -7,6 +8,7 @@ import { useFileDrop } from './app/useFileDrop'
 import { useI18n } from './i18n/context'
 import { ConvertPage } from './pages/ConvertPage'
 import { HubPage } from './pages/HubPage'
+import { Toaster } from '@/components/ui/sonner'
 import { MessagePage } from './pages/MessagePage'
 import { VideoEditPage } from './pages/VideoEditPage'
 import type { ConversionSettings } from './types'
@@ -17,6 +19,9 @@ const CAPABILITIES: Capabilities = {
   edit: ['video'],
   convert: ['video'],
 }
+
+/** 取り込みの通知は 1 件ずつ出し、新しい取り込みで前のものを置き換える */
+const INTAKE_TOAST_ID = 'intake'
 
 /**
  * 各画面に渡すファイル。画面は key で作り直すので、
@@ -41,13 +46,12 @@ function App() {
   // 出力設定は画面を行き来しても残す
   const [editSettings, setEditSettings] = useState<ConversionSettings>(DEFAULT_SETTINGS)
   const [convertSettings, setConvertSettings] = useState<ConversionSettings>(DEFAULT_SETTINGS)
-  const [notice, setNotice] = useState('')
 
   const openFiles = useCallback(
     (files: File[]) => {
       const plan = planIntake(files.map(detectKind), CAPABILITIES)
       if (!plan) {
-        setNotice(t.unsupportedFiles)
+        toast(t.unsupportedFiles, { id: INTAKE_TOAST_ID })
         return
       }
       const accepted = plan.accepted.map((index) => files[index])
@@ -56,18 +60,15 @@ function App() {
           ? { ...prev, editFile: accepted[0], editId: prev.editId + 1 }
           : { ...prev, convertFiles: accepted, convertId: prev.convertId + 1 }
       )
-      setNotice(plan.rejected.length > 0 ? t.skippedFiles(plan.rejected.length) : '')
+      if (plan.rejected.length > 0) {
+        toast(t.skippedFiles(plan.rejected.length), { id: INTAKE_TOAST_ID })
+      } else {
+        toast.dismiss(INTAKE_TOAST_ID)
+      }
       navigate(plan.route)
     },
     [t]
   )
-
-  // 通知は読めるだけの間だけ出して、画面を移ったあとまで残さない
-  useEffect(() => {
-    if (!notice) return
-    const timer = window.setTimeout(() => setNotice(''), 5000)
-    return () => window.clearTimeout(timer)
-  }, [notice])
 
   const drop = useFileDrop(openFiles)
 
@@ -119,14 +120,13 @@ function App() {
   return (
     <div className="shell" {...drop.handlers}>
       {page}
-      {notice && (
-        <div className="notice" role="status">
-          <span>{notice}</span>
-          <button className="notice-close" onClick={() => setNotice('')} aria-label={t.dismiss}>
-            ×
-          </button>
-        </div>
-      )}
+      {/* 通知は読めるだけの間だけ出して、画面を移ったあとまで残さない */}
+      <Toaster
+        position="bottom-center"
+        duration={5000}
+        closeButton
+        toastOptions={{ closeButtonAriaLabel: t.dismiss }}
+      />
     </div>
   )
 }

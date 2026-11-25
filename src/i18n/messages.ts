@@ -119,6 +119,15 @@ const ja = {
   batchEmpty: 'ファイルをドロップするか、下のボタンから選択します。',
   batchStatus: (completed: number, total: number, errors: number) =>
     `一括変換 ${completed}/${total} 完了${errors > 0 ? `、エラー ${errors}` : ''}`,
+  batchColFile: 'ファイル',
+  batchColStatus: '状態',
+  batchColOutput: '出力',
+  batchStateLabel: {
+    pending: '待機中',
+    converting: '変換中',
+    completed: '完了',
+    error: 'エラー',
+  },
 
   // Preview
   convertedGifAlt: '変換後の GIF',
@@ -229,6 +238,15 @@ const en: Messages = {
   batchEmpty: 'Drop files here, or pick them with the button below.',
   batchStatus: (completed: number, total: number, errors: number) =>
     `Batch conversion ${completed}/${total} completed${errors > 0 ? `, ${errors} errors` : ''}`,
+  batchColFile: 'File',
+  batchColStatus: 'Status',
+  batchColOutput: 'Output',
+  batchStateLabel: {
+    pending: 'Waiting',
+    converting: 'Converting',
+    completed: 'Done',
+    error: 'Error',
+  },
 
   convertedGifAlt: 'Converted GIF',
 }

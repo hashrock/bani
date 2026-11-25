@@ -1,3 +1,14 @@
+import { CircleAlertIcon, CircleCheckIcon, ClockIcon, LoaderCircleIcon } from 'lucide-react'
+import { Progress } from '@/components/ui/progress'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { cn } from '@/lib/utils'
 import { useI18n } from '../i18n/context'
 import type { BatchFileStatus } from '../types'
 import { formatBytes } from '../utils/format'
@@ -6,100 +17,83 @@ interface BatchStatusProps {
   files: BatchFileStatus[]
 }
 
+const STATUS_ICON = {
+  pending: ClockIcon,
+  converting: LoaderCircleIcon,
+  completed: CircleCheckIcon,
+  error: CircleAlertIcon,
+} satisfies Record<BatchFileStatus['status'], unknown>
+
+/** 状態ごとの色。成否だけ色を持たせ、それ以外は無彩色に揃える */
+const STATUS_TONE: Record<BatchFileStatus['status'], string> = {
+  pending: 'text-muted-foreground',
+  converting: 'text-foreground',
+  completed: 'text-success',
+  error: 'text-destructive',
+}
+
+/** 一括変換の進み具合。1 ファイル 1 行で、状態・入力サイズ・出力（進捗か結果）を並べる */
 export function BatchStatus({ files }: BatchStatusProps) {
   const { t } = useI18n()
-  const getStatusIcon = (status: BatchFileStatus['status']) => {
-    switch (status) {
-      case 'pending':
-        return '⏳'
-      case 'converting':
-        return '🔄'
-      case 'completed':
-        return '✅'
-      case 'error':
-        return '❌'
-    }
-  }
-
-  const getStatusColor = (status: BatchFileStatus['status']) => {
-    switch (status) {
-      case 'pending':
-        return '#666'
-      case 'converting':
-        return '#007bff'
-      case 'completed':
-        return '#28a745'
-      case 'error':
-        return '#dc3545'
-    }
-  }
-
-  const completedCount = files.filter(f => f.status === 'completed').length
-  const errorCount = files.filter(f => f.status === 'error').length
+  const completedCount = files.filter((f) => f.status === 'completed').length
+  const errorCount = files.filter((f) => f.status === 'error').length
 
   return (
-    <div style={{ marginTop: '20px', padding: '15px', border: '1px solid #ddd', borderRadius: '8px' }}>
-      <h3 style={{ marginTop: 0 }}>{t.batchStatus(completedCount, files.length, errorCount)}</h3>
-      <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-        {files.map((fileStatus, index) => (
-          <div
-            key={index}
-            style={{
-              padding: '10px',
-              marginBottom: '8px',
-              border: '1px solid #eee',
-              borderRadius: '4px',
-              backgroundColor: '#f9f9f9',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '20px' }}>{getStatusIcon(fileStatus.status)}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-                  {fileStatus.file.name}
-                </div>
-                <div style={{ fontSize: '12px', color: '#666' }}>
-                  {formatBytes(fileStatus.file.size)}
-                </div>
-              </div>
-              <div style={{ color: getStatusColor(fileStatus.status), fontWeight: 'bold' }}>
-                {fileStatus.status === 'converting' && `${fileStatus.progress}%`}
-                {fileStatus.status === 'completed' && (
-                  <span style={{ fontSize: '12px' }}>
-                    → {formatBytes(fileStatus.convertedSize)}
-                  </span>
-                )}
-              </div>
-            </div>
-            {fileStatus.status === 'converting' && (
-              <div style={{ marginTop: '8px' }}>
-                <div
-                  style={{
-                    height: '4px',
-                    backgroundColor: '#e0e0e0',
-                    borderRadius: '2px',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      height: '100%',
-                      backgroundColor: '#007bff',
-                      width: `${fileStatus.progress}%`,
-                      transition: 'width 0.3s',
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-            {fileStatus.status === 'error' && (
-              <div style={{ marginTop: '8px', color: '#dc3545', fontSize: '12px' }}>
-                {fileStatus.error}
-              </div>
-            )}
-          </div>
-        ))}
+    <section className="flex flex-col gap-3">
+      <h3 className="text-sm font-semibold" aria-live="polite">
+        {t.batchStatus(completedCount, files.length, errorCount)}
+      </h3>
+      <div className="rounded-md border">
+        <Table className="table-fixed text-xs">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="h-8 w-28 px-3 text-muted-foreground">{t.batchColStatus}</TableHead>
+              <TableHead className="h-8 px-3 text-muted-foreground">{t.batchColFile}</TableHead>
+              <TableHead className="h-8 w-40 px-3 text-right text-muted-foreground">
+                {t.batchColOutput}
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {files.map((fileStatus, index) => {
+              const Icon = STATUS_ICON[fileStatus.status]
+              return (
+                <TableRow key={index}>
+                  <TableCell className={cn('px-3 align-top', STATUS_TONE[fileStatus.status])}>
+                    <span className="flex items-center gap-1.5">
+                      <Icon
+                        aria-hidden="true"
+                        className={cn('size-3.5', fileStatus.status === 'converting' && 'animate-spin')}
+                      />
+                      {t.batchStateLabel[fileStatus.status]}
+                    </span>
+                  </TableCell>
+                  <TableCell className="px-3 align-top whitespace-normal">
+                    <div className="truncate font-medium" title={fileStatus.file.name}>
+                      {fileStatus.file.name}
+                    </div>
+                    <div className="text-muted-foreground">{formatBytes(fileStatus.file.size)}</div>
+                    {fileStatus.status === 'error' && (
+                      <div className="mt-1 break-words text-destructive">{fileStatus.error}</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="px-3 text-right align-top tabular-nums">
+                    {fileStatus.status === 'converting' && (
+                      <div className="flex items-center gap-2">
+                        <Progress value={fileStatus.progress} className="h-1 flex-1" />
+                        <span className="w-9 text-right">{fileStatus.progress}%</span>
+                      </div>
+                    )}
+                    {fileStatus.status === 'completed' && (
+                      <span className="text-success">→ {formatBytes(fileStatus.convertedSize)}</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
       </div>
-    </div>
+    </section>
   )
 }
