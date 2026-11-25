@@ -27,6 +27,11 @@ const edit: fc.Arbitrary<PdfEdit> = fc.oneof(
   fc.record({ type: fc.constant('rotate' as const), indices, by: rotation }),
   fc.record({ type: fc.constant('appendSource' as const), source: fc.integer({ min: -1, max: 5 }) }),
   fc.record({
+    type: fc.constant('insertSource' as const),
+    source: fc.integer({ min: -1, max: 5 }),
+    at: fc.integer({ min: -3, max: 30 }),
+  }),
+  fc.record({
     type: fc.constant('keepRanges' as const),
     ranges: fc.array(
       fc
@@ -155,6 +160,40 @@ describe('applyPdfEdit', () => {
     )
   })
 
+  test('insertSource はいまのページ列の at の位置に、その入力の全ページを差し込む', () => {
+    fc.assert(
+      fc.property(
+        reachable,
+        fc.integer({ min: -1, max: 5 }),
+        fc.integer({ min: -3, max: 30 }),
+        ({ shapes, recipe }, source, at) => {
+          const next = applyPdfEdit(recipe, { type: 'insertSource', source, at }, shapes)
+          const count = shapes[source]?.pageCount ?? 0
+          if (count === 0) {
+            expect(next).toBe(recipe)
+            return
+          }
+          const position = Math.max(0, Math.min(recipe.pages.length, at))
+          expect(next.pages.length).toBe(recipe.pages.length + count)
+          expect([...next.pages.slice(0, position), ...next.pages.slice(position + count)]).toEqual(recipe.pages)
+          expect(next.pages.slice(position, position + count)).toEqual(
+            Array.from({ length: count }, (_, page) => ({ source, page, rotate: 0 }))
+          )
+        }
+      )
+    )
+  })
+
+  test('末尾への insertSource は appendSource と同じ', () => {
+    fc.assert(
+      fc.property(reachable, fc.integer({ min: -1, max: 5 }), ({ shapes, recipe }, source) => {
+        const appended = applyPdfEdit(recipe, { type: 'appendSource', source }, shapes)
+        const inserted = applyPdfEdit(recipe, { type: 'insertSource', source, at: recipe.pages.length }, shapes)
+        expect(inserted.pages).toEqual(appended.pages)
+      })
+    )
+  })
+
   test('keepRanges は範囲に入る位置のページだけを、いまの順序のまま残す', () => {
     fc.assert(
       fc.property(
@@ -184,6 +223,7 @@ describe('applyPdfEdit', () => {
           { type: 'remove', indices: [-1, 999] },
           { type: 'rotate', indices: [0], by: 0 },
           { type: 'appendSource', source: 99 },
+          { type: 'insertSource', source: 99, at: 0 },
           { type: 'keepRanges', ranges: [{ start: 1, end: recipe.pages.length }] },
         ]
         for (const noop of noops) expect(applyPdfEdit(recipe, noop, shapes)).toBe(recipe)
@@ -198,5 +238,10 @@ describe('isPdfRecipeValid', () => {
     expect(isPdfRecipeValid({ pages: [{ source: 0, page: 2, rotate: 0 }] }, shapes)).toBe(false)
     expect(isPdfRecipeValid({ pages: [{ source: 1, page: 0, rotate: 0 }] }, shapes)).toBe(false)
     expect(isPdfRecipeValid({ pages: [{ source: 0, page: 1, rotate: 90 }] }, shapes)).toBe(true)
+  })
+
+  test('90 度刻みでない回転は無効（残っていた作業の値を確かめる）', () => {
+    const shapes = [{ pageCount: 1 }]
+    expect(isPdfRecipeValid({ pages: [{ source: 0, page: 0, rotate: 45 as never }] }, shapes)).toBe(false)
   })
 })
