@@ -5,6 +5,7 @@ import { MEDIA_KINDS } from '../app/routes'
 import type { MediaKind } from '../app/routes'
 import { meta as archiveMeta } from './archive/meta'
 import { meta as audioMeta } from './audio/meta'
+import { CONVERT_KINDS } from './convert/kinds'
 import { meta as imageMeta } from './image/meta'
 import { meta as pdfMeta } from './pdf/meta'
 import { meta as textMeta } from './text/meta'
@@ -37,5 +38,5 @@ export const PAGE_META: Record<MediaKind, PageMeta> = {
 /** いま実装済みの画面が受け付ける種類 */
 export const CAPABILITIES: Capabilities = {
   edit: MEDIA_KINDS.filter((kind) => PAGE_META[kind].edit),
-  convert: MEDIA_KINDS.filter((kind) => PAGE_META[kind].convert),
+  convert: CONVERT_KINDS,
 }
