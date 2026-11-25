@@ -2,239 +2,244 @@
  * 部品の見た目は shadcn/ui と Tailwind のユーティリティで書く。
  * ここに残すのは、画面の骨組み（サイドバー＋作業領域とその折り返し）と、
  * 部品に置き換えられない独自の描画（タイムライン、映像プレビュー）だけ。
+ *
+ * 全体を components 層に入れ、同じ要素に付けた Tailwind のユーティリティ（utilities 層）が勝つようにする。
+ * 層の外に書くと、`.preview-area` に足した `flex-col` などが黙って負け、画面ごとに組み直すことになる。
  */
 
-/* ===== Shell: アプリ全体でドロップを受ける枠 ===== */
-.shell {
-  width: 100%;
-  height: 100%;
-  position: relative;
-}
+@layer components {
+  /* ===== Shell: アプリ全体でドロップを受ける枠 ===== */
+  .shell {
+    width: 100%;
+    height: 100%;
+    position: relative;
+  }
 
-/* ===== Layout: sidebar + workspace(stage / bottom bar) ===== */
-.app {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  overflow: hidden;
-}
-
-.workspace {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-width: 0;
-}
-
-.stage {
-  flex: 1;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--muted);
-}
-
-.sidebar {
-  width: 300px;
-  flex-shrink: 0;
-  background: var(--background);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.sidebar-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0 16px;
-}
-
-/* 実行ボタンは手順の量に関係なく常に見えるよう、スクロールの外に固定する */
-.sidebar-footer {
-  border-top: 1px solid var(--border);
-  padding: 12px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: var(--background);
-}
-
-/* ドラッグ中のファイルを受けられる場所を示す */
-.drop-target-active {
-  outline: 2px dashed #999;
-  outline-offset: -8px;
-}
-
-/* ===== Preview area ===== */
-.preview-area {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--muted);
-  position: relative;
-  overflow: hidden;
-}
-
-.preview-area.drop-target-active {
-  background: #e8e8e8;
-}
-
-/* 変換前後の映像を重ね、opacity で切り替える（読み込み直しによるちらつきを避ける） */
-.preview-video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #000;
-  transition: opacity 0.3s;
-}
-
-/* ===== Bottom bar: トリムと再変換 ===== */
-.bottom-bar {
-  border-top: 1px solid var(--border);
-  background: var(--background);
-  padding: 10px 16px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.trim-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-/* 時刻の桁が動いてもタイムラインの幅が揺れないよう、数字は等幅・幅は固定にする */
-.transport-time {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  min-width: 108px;
-}
-
-.trim-length {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted-foreground);
-  min-width: 56px;
-  text-align: right;
-}
-
-.adjust-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.result-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-/* ===== Timeline: トリム区間・ハンドル・再生位置を重ねて描く ===== */
-.timeline {
-  flex: 1;
-  min-width: 0;
-  padding: 12px 0;
-  cursor: pointer;
-  touch-action: none;
-}
-
-.timeline-track {
-  position: relative;
-  height: 12px;
-  background: #ececec;
-  border-radius: 3px;
-}
-
-.timeline-range {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  background: var(--timeline-range);
-  border-top: 1px solid var(--timeline);
-  border-bottom: 1px solid var(--timeline);
-}
-
-.timeline-handle {
-  position: absolute;
-  top: -4px;
-  width: 10px;
-  height: 20px;
-  margin-left: -5px;
-  background: #fff;
-  border: 1px solid var(--timeline);
-  border-radius: 3px;
-  cursor: ew-resize;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
-}
-
-/* つまみの中央の縦線。掴める場所だと分かるようにする */
-.timeline-handle::after {
-  content: '';
-  position: absolute;
-  top: 5px;
-  left: 4px;
-  width: 1px;
-  height: 8px;
-  background: var(--timeline);
-}
-
-.timeline-handle:hover,
-.timeline.dragging .timeline-handle {
-  border-color: #1b4f9c;
-}
-
-.timeline-playhead {
-  position: absolute;
-  top: -6px;
-  width: 2px;
-  height: 24px;
-  margin-left: -1px;
-  background: var(--foreground);
-  pointer-events: none;
-}
-
-.timeline-playhead::before {
-  content: '';
-  position: absolute;
-  top: -3px;
-  left: -3px;
-  width: 8px;
-  height: 8px;
-  background: var(--foreground);
-  border-radius: 50%;
-}
-
-/* ===== Responsive: 狭い画面ではサイドバーを下に回す ===== */
-@media (max-width: 860px) {
+  /* ===== Layout: sidebar + workspace(stage / bottom bar) ===== */
   .app {
-    flex-direction: column-reverse;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    overflow: hidden;
+  }
+
+  .workspace {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .stage {
+    flex: 1;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--muted);
   }
 
   .sidebar {
-    width: 100%;
-    border-right: none;
+    width: 300px;
+    flex-shrink: 0;
+    background: var(--background);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0 16px;
+  }
+
+  /* 実行ボタンは手順の量に関係なく常に見えるよう、スクロールの外に固定する */
+  .sidebar-footer {
     border-top: 1px solid var(--border);
-    max-height: 45vh;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--background);
+  }
+
+  /* ドラッグ中のファイルを受けられる場所を示す */
+  .drop-target-active {
+    outline: 2px dashed #999;
+    outline-offset: -8px;
+  }
+
+  /* ===== Preview area ===== */
+  .preview-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--muted);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .preview-area.drop-target-active {
+    background: #e8e8e8;
+  }
+
+  /* 変換前後の映像を重ね、opacity で切り替える（読み込み直しによるちらつきを避ける） */
+  .preview-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+    transition: opacity 0.3s;
+  }
+
+  /* ===== Bottom bar: トリムと再変換 ===== */
+  .bottom-bar {
+    border-top: 1px solid var(--border);
+    background: var(--background);
+    padding: 10px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .trim-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* 時刻の桁が動いてもタイムラインの幅が揺れないよう、数字は等幅・幅は固定にする */
+  .transport-time {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    min-width: 108px;
+  }
+
+  .trim-length {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-foreground);
+    min-width: 56px;
+    text-align: right;
   }
 
   .adjust-row {
-    align-items: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
   }
 
   .result-actions {
-    margin-left: 0;
-    flex-wrap: wrap;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  /* ===== Timeline: トリム区間・ハンドル・再生位置を重ねて描く ===== */
+  .timeline {
+    flex: 1;
+    min-width: 0;
+    padding: 12px 0;
+    cursor: pointer;
+    touch-action: none;
+  }
+
+  .timeline-track {
+    position: relative;
+    height: 12px;
+    background: #ececec;
+    border-radius: 3px;
+  }
+
+  .timeline-range {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: var(--timeline-range);
+    border-top: 1px solid var(--timeline);
+    border-bottom: 1px solid var(--timeline);
+  }
+
+  .timeline-handle {
+    position: absolute;
+    top: -4px;
+    width: 10px;
+    height: 20px;
+    margin-left: -5px;
+    background: #fff;
+    border: 1px solid var(--timeline);
+    border-radius: 3px;
+    cursor: ew-resize;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  }
+
+  /* つまみの中央の縦線。掴める場所だと分かるようにする */
+  .timeline-handle::after {
+    content: '';
+    position: absolute;
+    top: 5px;
+    left: 4px;
+    width: 1px;
+    height: 8px;
+    background: var(--timeline);
+  }
+
+  .timeline-handle:hover,
+  .timeline.dragging .timeline-handle {
+    border-color: #1b4f9c;
+  }
+
+  .timeline-playhead {
+    position: absolute;
+    top: -6px;
+    width: 2px;
+    height: 24px;
+    margin-left: -1px;
+    background: var(--foreground);
+    pointer-events: none;
+  }
+
+  .timeline-playhead::before {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    width: 8px;
+    height: 8px;
+    background: var(--foreground);
+    border-radius: 50%;
+  }
+
+  /* ===== Responsive: 狭い画面ではサイドバーを下に回す ===== */
+  @media (max-width: 860px) {
+    .app {
+      flex-direction: column-reverse;
+    }
+
+    .sidebar {
+      width: 100%;
+      border-right: none;
+      border-top: 1px solid var(--border);
+      max-height: 45vh;
+    }
+
+    .adjust-row {
+      align-items: stretch;
+    }
+
+    .result-actions {
+      margin-left: 0;
+      flex-wrap: wrap;
+    }
   }
 }

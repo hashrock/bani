@@ -12,10 +12,9 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <!-- hashrock のサービス切り替え。ヘッダが無いので画面右上の角に浮かせる。
-         アプリは常にライト配色 (App.css) なので theme="light" で揃える。
+    <!-- hashrock のサービス切り替え。要素はサイドバーと入口の見出しの右端に置く（src/components/BrandMark.tsx）。
+         作業領域の上に浮かせると、どの画面でも右上の中身を隠してしまうため。
          別オリジンなので Service Worker はキャッシュせず、オフラインでは読めずに表示されないだけ -->
     <script type="module" src="https://repos.hashrock.info/switcher/v1.js"></script>
-    <hashrock-switcher floating theme="light"></hashrock-switcher>
   </body>
 </html>
