@@ -129,6 +129,10 @@ export function detectEncodableFormats(): Promise<ImageFormat[]> {
     for (const format of Object.keys(IMAGE_FORMATS) as ImageFormat[]) {
       try {
         const canvas = createCanvas(1, 1)
+        // 描画コンテキストを一度も作っていない Canvas は、Chrome では書き出し自体を拒む
+        const ctx = canvas.getContext('2d') as AnyContext | null
+        if (!ctx) continue
+        ctx.fillRect(0, 0, 1, 1)
         await encodeCanvas(canvas, format, 80)
         formats.push(format)
       } catch {

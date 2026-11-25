@@ -7,7 +7,7 @@ import type { ConversionResult, Trim } from '../types'
 export const progressValue = fc.integer({ min: 0, max: 100 })
 
 export const conversionResult: fc.Arbitrary<ConversionResult> = fc.record({
-  buffer: fc.nat({ max: 64 }).map((size) => new ArrayBuffer(size)),
+  blob: fc.nat({ max: 64 }).map((size) => new Blob([new Uint8Array(size)])),
   originalSize: fc.nat(),
   convertedSize: fc.nat(),
   filename: fc.string(),

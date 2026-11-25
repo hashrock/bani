@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n/context'
 import { applyTrim } from '../state/trim'
+import type { TrimAction } from '../state/trim'
 import type { Trim } from '../types'
 
 interface TimelineProps {
   duration: number
   trim: Trim
   currentTime: number
-  onTrimChange: (trim: Trim) => void
+  /** ハンドルのドラッグ中に呼ぶ。区間の丸めは受け取った側（レシピ）が行う */
+  onTrimChange: (action: TrimAction) => void
+  /** ハンドルを離したとき。ドラッグ 1 回を取り消しの 1 段にまとめるのに使う */
+  onTrimEnd?: () => void
   onSeek: (time: number) => void
 }
 
@@ -20,7 +24,14 @@ const percent = (value: number, duration: number) =>
  * トリム区間と再生位置をドラッグで操作するタイムライン。
  * ハンドルを動かすと再生位置もそこへ飛ぶので、切り出し位置をその場で確認できる。
  */
-export function Timeline({ duration, trim, currentTime, onTrimChange, onSeek }: TimelineProps) {
+export function Timeline({
+  duration,
+  trim,
+  currentTime,
+  onTrimChange,
+  onTrimEnd,
+  onSeek,
+}: TimelineProps) {
   const { t } = useI18n()
   const { start, end } = trim
   const trackRef = useRef<HTMLDivElement>(null)
@@ -43,12 +54,10 @@ export function Timeline({ duration, trim, currentTime, onTrimChange, onSeek }: 
         return
       }
       // 依存を数値のままにして、毎レンダーで購読を張り直さないようにする
-      const next = applyTrim(
-        { start, end },
-        duration,
-        target === 'start' ? { type: 'setStart', time } : { type: 'setEnd', time }
-      )
-      onTrimChange(next)
+      const action: TrimAction = target === 'start' ? { type: 'setStart', time } : { type: 'setEnd', time }
+      // 再生位置を合わせるために、受け取った側と同じ丸めをここでも行う
+      const next = applyTrim({ start, end }, duration, action)
+      onTrimChange(action)
       // 動かした側の端へ再生位置を合わせ、切り出し位置をその場で確かめられるようにする
       onSeek(target === 'start' ? next.start : next.end)
     },
@@ -59,7 +68,10 @@ export function Timeline({ duration, trim, currentTime, onTrimChange, onSeek }: 
     if (!dragging) return
 
     const onMove = (e: PointerEvent) => applyDrag(dragging, timeAt(e.clientX))
-    const onUp = () => setDragging(null)
+    const onUp = () => {
+      setDragging(null)
+      if (dragging !== 'playhead') onTrimEnd?.()
+    }
 
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -69,7 +81,7 @@ export function Timeline({ duration, trim, currentTime, onTrimChange, onSeek }: 
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
-  }, [dragging, applyDrag, timeAt])
+  }, [dragging, applyDrag, timeAt, onTrimEnd])
 
   const beginDrag = (target: DragTarget) => (e: React.PointerEvent) => {
     e.preventDefault()
