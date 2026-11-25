@@ -5,9 +5,10 @@ import { createAudioOutput, estimateRenderSize } from './output'
 import { NoAudioTrackError, probeAudio } from './probe'
 import { applyAudioEdit, createAudioRecipe } from './recipe'
 import { UnsupportedAudioFormatError, renderAudio } from './render'
+import { detectSilence, keptLength, planKeptRanges } from './silence'
 import { makeWav } from './testFixtures'
 import type { AudioEdit, AudioInfo, AudioRecipe } from './types'
-import { loadWaveform } from './waveform'
+import { analyzeAudio, loadWaveform } from './waveform'
 
 /**
  * mediabunny を通した書き出しの結合テスト。
@@ -113,6 +114,109 @@ describe('renderAudio（WAV）', () => {
     })
     expect(progress.every((p) => p >= 0 && p <= 1)).toBe(true)
     expect(progress[progress.length - 1]).toBe(1)
+  })
+})
+
+describe('renderAudio（無音カット）', () => {
+  /** 音 1 秒・無音 2 秒・音 1 秒・無音 0.3 秒・音 0.7 秒（無音の 0.3 秒は最短の長さより短いので残る） */
+  const gapped = () =>
+    makeWav(
+      (frame, channel) => {
+        const t = frame / SAMPLE_RATE
+        const loud = t < 1 || (t >= 3 && t < 4) || t >= 4.3
+        return loud ? Math.sin(frame / 7) * (channel === 0 ? 0.5 : 0.4) : 0
+      },
+      { seconds: 5, sampleRate: SAMPLE_RATE, channels: 2, name: 'gapped.wav' }
+    )
+  const silenceOn = { type: 'setSilence', silence: { enabled: true, thresholdDb: -40, minDuration: 0.5, padding: 0.1 } } as const
+
+  test('無音を削った長さで書き出され、削った所に長い無音が残らない', async () => {
+    const file = gapped()
+    const info = await probeAudio(file)
+    const recipe = edit(info, [silenceOn])
+    const output = createAudioOutput('wav')
+    const rendered = await renderAudio(file, recipe, output)
+    const out = new File([rendered.blob], rendered.filename)
+    // 1.1 + (0.1 + 1 + 0.3 + 0.7) = 3.2 秒
+    const outInfo = await probeAudio(out)
+    expect(outInfo.duration).toBeCloseTo(3.2, 2)
+
+    // 画面で見積もる長さ・大きさと一致する
+    const analysis = await analyzeAudio(file, 100)
+    const kept = planKeptRanges(recipe, analysis.levels)
+    expect(keptLength(kept)).toBeCloseTo(outInfo.duration, 2)
+    expect(rendered.blob.size).toBeCloseTo(estimateRenderSize(output, recipe, info, keptLength(kept)), -2)
+
+    // 書き出しに残る無音は、padding の両側ぶん（0.2 秒）と、削らなかった 0.3 秒だけ
+    const { levels } = await analyzeAudio(out, 10)
+    const silences = detectSilence(levels, { thresholdDb: -40, minDuration: 0.05 }, { start: 0, end: outInfo.duration })
+    expect(silences).toHaveLength(2)
+    for (const silence of silences) expect(silence.end - silence.start).toBeLessThan(0.35)
+  })
+
+  test('つなぎ目はクロスフェードでつなぎ、音が跳ばない', async () => {
+    // しきい値（-20 dBFS = 0.1）より小さい、ゆっくり上がる直線を「無音」の中に置く。
+    // 削る範囲の両側で値が 0.16 ほど違うので、ただ切ってつなぐとそこで段差（プツッという音）が出る
+    const rate = SAMPLE_RATE
+    // 0〜1 秒と 3〜4 秒に、50ms かけて立ち上がり・消える音を置く
+    const bump = (t: number, from: number, to: number) =>
+      Math.min(1, Math.max(0, Math.min((t - from) / 0.05, (to - t) / 0.05)))
+    const envelope = (t: number) => Math.max(bump(t, 0, 1), bump(t, 3, 4))
+    const file = makeWav(
+      (frame) => {
+        const t = frame / rate
+        const quiet = -0.09 + (0.18 * Math.min(Math.max(t - 1, 0), 2)) / 2
+        return quiet + 0.5 * envelope(t) * Math.sin(frame / 200)
+      },
+      { seconds: 4, sampleRate: rate, channels: 1, name: 'ramp.wav' }
+    )
+    const info = await probeAudio(file)
+    const recipe = edit(info, [
+      { type: 'setSilence', silence: { enabled: true, thresholdDb: -20, minDuration: 0.5, padding: 0.1 } },
+    ])
+    const rendered = await renderAudio(file, recipe, createAudioOutput('wav'))
+    const view = new DataView(await rendered.blob.arrayBuffer())
+    const frames = (view.byteLength - 44) / 2
+    // 1 回は削れている
+    expect(frames / rate).toBeLessThan(3)
+    let maxStep = 0
+    for (let i = 1; i < frames; i++) {
+      const step = Math.abs(view.getInt16(44 + i * 2, true) - view.getInt16(44 + (i - 1) * 2, true)) / 0x7fff
+      maxStep = Math.max(maxStep, step)
+    }
+    // 元の信号の 1 サンプルの差は 0.5 / 200 + 立ち上がりの分で 0.01 未満。段差なら 0.1 を超える
+    expect(maxStep).toBeLessThan(0.02)
+  })
+
+  test('フェードとノーマライズは削ったあとの時間軸に掛かる', async () => {
+    const file = gapped()
+    const info = await probeAudio(file)
+    const recipe = edit(info, [silenceOn, { type: 'setFadeOut', seconds: 0.5 }, { type: 'setNormalize', enabled: true }])
+    const rendered = await renderAudio(file, recipe, createAudioOutput('wav'))
+    const out = new File([rendered.blob], rendered.filename)
+    const outInfo = await probeAudio(out)
+    expect(outInfo.duration).toBeCloseTo(3.2, 2)
+    // 32 等分（0.1 秒ずつ）。最後の 0.1 秒はフェードアウトの終わりで小さく、真ん中の音は目標のピーク
+    const peaks = await loadWaveform(out, 32)
+    expect(peaks[31]).toBeLessThan(peaks[20] * 0.3)
+    expect(Math.max(...peaks)).toBeLessThanOrEqual(dbToGain(NORMALIZE_TARGET_DB) + 1e-3)
+    expect(peaks[5]).toBeCloseTo(dbToGain(NORMALIZE_TARGET_DB) * 0.9, 1)
+  })
+
+  test('全体が無音なら何も削らない', async () => {
+    const file = makeWav(() => 0, { seconds: 1, sampleRate: SAMPLE_RATE, channels: 1, name: 'quiet.wav' })
+    const info = await probeAudio(file)
+    const rendered = await renderAudio(file, edit(info, [silenceOn]), createAudioOutput('wav'))
+    expect((await reprobe(rendered)).duration).toBeCloseTo(1, 3)
+  })
+
+  test('区間で切り出してから無音を削る', async () => {
+    const file = gapped()
+    const info = await probeAudio(file)
+    const recipe = edit(info, [silenceOn, { type: 'setTrimStart', time: 0.5 }, { type: 'setTrimEnd', time: 3.5 }])
+    const rendered = await renderAudio(file, recipe, createAudioOutput('flac'))
+    // 0.5〜1.1 と 2.9〜3.5 = 1.2 秒
+    expect((await reprobe(rendered)).duration).toBeCloseTo(1.2, 2)
   })
 })
 

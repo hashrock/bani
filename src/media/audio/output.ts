@@ -150,9 +150,17 @@ export function estimateAudioSize(
   return output.format === 'wav' ? WAV_HEADER_BYTES + pcmBytes : Math.round(pcmBytes * FLAC_RATIO)
 }
 
-/** レシピと元の情報から書き出しの大きさを見積もる */
-export function estimateRenderSize(output: AudioOutput, recipe: AudioRecipe, info: AudioInfo): number {
-  return estimateAudioSize(output, trimmedLength(recipe), {
+/**
+ * レシピと元の情報から書き出しの大きさを見積もる。
+ * @param length 書き出しの長さ（秒）。無音カットで短くなるときに渡す。省略すると区間の長さ
+ */
+export function estimateRenderSize(
+  output: AudioOutput,
+  recipe: AudioRecipe,
+  info: AudioInfo,
+  length = trimmedLength(recipe)
+): number {
+  return estimateAudioSize(output, length, {
     sampleRate: resolveSampleRate(output, info),
     channels: resolveChannels(output, recipe, info),
   })

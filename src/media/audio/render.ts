@@ -21,7 +21,9 @@ import { AUDIO_FORMATS, audioFilename, clampBitrate, resolveChannels, resolveSam
 import { probeAudio } from './probe'
 import { trimmedLength } from './recipe'
 import { decodeRange, planesToSample, primaryAudioTrack, readPlanes } from './samples'
-import type { AudioFormat, AudioOutput, AudioRecipe } from './types'
+import { SILENCE_CROSSFADE, createLevelAccumulator, keptLength, levelWindowFrames, planKeptRanges } from './silence'
+import { createTimedSplicer } from './splice'
+import type { AudioFormat, AudioOutput, AudioRecipe, TimeRange } from './types'
 
 /** その環境で選んだ形式のエンコーダが使えないとき（例: AAC を持たない OS の Firefox） */
 export class UnsupportedAudioFormatError extends Error {
@@ -34,15 +36,18 @@ export class UnsupportedAudioFormatError extends Error {
   }
 }
 
-/** ノーマライズのためのピーク計測（1 回目のデコード）が全体の進み具合に占める割合 */
-const MEASURE_SHARE = 0.25
+/** 無音の検出・ノーマライズのピーク計測（書き出しの前のデコード）が、それぞれ全体の進み具合に占める割合 */
+const PREPASS_SHARE = 0.2
 
 /**
  * 元ファイル + レシピ + 出力設定から音声ファイルを書き出す。動画ファイルなら音声だけを抜き出す。
  *
- * ノーマライズ時は 2 回デコードする（1 回目で区間のピークを測り、2 回目で書き出す）。
- * 音量・フェード・モノラル化は mediabunny の Conversion の process フックで、
- * dsp.ts の純粋関数をデコード済みのサンプルに掛けて行う。
+ * 書き出しの前に、必要なら区間をデコードし直して下ごしらえをする（それぞれ 1 回ずつ）:
+ * 1. 無音カット: 音量の包絡を取り、残す範囲を決める（silence.ts）
+ * 2. ノーマライズ: 書き出しと同じ処理（つなぎ合わせ・チャンネル合わせ・フェード）を掛けたピークを測る
+ * 書き出しでは mediabunny の Conversion の process フックで、
+ * 区間で切り出す（Conversion の trim）→ 無音を削ってつなぐ（splice.ts）→ チャンネル合わせ・フェード・音量（dsp.ts）
+ * の順に掛ける。フェードは削ったあとの時間軸の頭と尻に掛かる。
  *
  * node（vitest）で通しで試せるのは WebCodecs を使わない経路（WAV 入力 → WAV / FLAC / MP3）だけ。
  * WAV 以外の入力のデコードと AAC / Opus の書き出しはブラウザでしか動かない。
@@ -64,30 +69,49 @@ export async function renderAudio(
   const length = trimmedLength(recipe)
   const whole = recipe.trim.start <= 0 && recipe.trim.end >= info.duration
 
+  let progressBase = 0
+  const prepassProgress = (p: number) => onProgress?.(progressBase + p * PREPASS_SHARE)
+
+  // 削るものがなければ（全体が無音・無音が見つからない）つなぎ合わせを通さない
+  let kept: TimeRange[] | null = null
+  if (recipe.silence.enabled) {
+    const planned = await detectKeptRanges(file, recipe, signal, prepassProgress)
+    if (planned.length > 1 || keptLength(planned) < length) kept = planned
+    progressBase += PREPASS_SHARE
+  }
+  const outputLength = kept ? keptLength(kept) : length
+
   let gain = dbToGain(recipe.gainDb)
   if (recipe.normalize) {
-    const peak = await measurePeak(file, recipe, channels, signal, (p) => onProgress?.(p * MEASURE_SHARE))
+    const peak = await measurePeak(file, recipe, kept, outputLength, channels, signal, prepassProgress)
     gain *= normalizeGain(peak)
+    progressBase += PREPASS_SHARE
   }
-  const progressBase = recipe.normalize ? MEASURE_SHARE : 0
   throwIfAborted(signal)
 
   const needsProcessing =
-    recipe.fadeIn > 0 || recipe.fadeOut > 0 || gain !== 1 || channels !== info.channels
+    kept !== null || recipe.fadeIn > 0 || recipe.fadeOut > 0 || gain !== 1 || channels !== info.channels
   // FLAC は 32bit 浮動小数のまま渡すと 24bit で書かれて大きくなるので、16bit に揃える
   const int16 = output.format === 'flac'
 
-  const process = (sample: AudioSample): AudioSample => {
-    const planes = processPlanes(readPlanes(sample), {
-      startTime: sample.timestamp,
-      sampleRate: sample.sampleRate,
-      length,
+  const finish = (planes: Float32Array[], time: number, sampleRate: number): AudioSample => {
+    const processed = processPlanes(planes, {
+      startTime: time,
+      sampleRate,
+      length: outputLength,
       fadeIn: recipe.fadeIn,
       fadeOut: recipe.fadeOut,
       gain,
       channels,
     })
-    return planesToSample(int16 ? planes.map(floatToInt16) : planes, sample.sampleRate, sample.timestamp)
+    return planesToSample(int16 ? processed.map(floatToInt16) : processed, sampleRate, time)
+  }
+  // process に届くのは区間の先頭を 0 とした、変換後のサンプルレートのブロック
+  const splice = kept ? createTimedSplicer(kept, recipe.trim.start, SILENCE_CROSSFADE) : null
+  const process = (sample: AudioSample): AudioSample | AudioSample[] | null => {
+    if (!splice) return finish(readPlanes(sample), sample.timestamp, sample.sampleRate)
+    const chunks = splice(readPlanes(sample), sample.timestamp, sample.sampleRate)
+    return chunks.length > 0 ? chunks.map((chunk) => finish(chunk.planes, chunk.time, sample.sampleRate)) : null
   }
 
   const audio: ConversionAudioOptions = {
@@ -159,12 +183,47 @@ function createOutputFormat(format: AudioFormat): OutputFormat {
 }
 
 /**
- * 書き出しと同じ処理（チャンネル合わせ・フェード）を掛けた信号の、区間内のピーク。
+ * 区間の音量の包絡を取り、無音カットで残す範囲を決める。
+ * 包絡の窓はファイルの先頭から刻むので、区間の頭を含む窓の頭から読み始め、
+ * 画面（ファイル全体から取った包絡）と同じ窓に同じ値が入るようにする。
+ */
+async function detectKeptRanges(
+  file: File,
+  recipe: AudioRecipe,
+  signal: AbortSignal | undefined,
+  onProgress: (progress: number) => void
+): Promise<TimeRange[]> {
+  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS })
+  try {
+    const track = await primaryAudioTrack(input)
+    const sampleRate = await track.getSampleRate()
+    const size = levelWindowFrames(sampleRate)
+    const startFrame = Math.floor(Math.round(recipe.trim.start * sampleRate) / size) * size
+    const from = startFrame / sampleRate
+    const to = recipe.trim.end + size / sampleRate
+    const accumulator = createLevelAccumulator(sampleRate, startFrame)
+    const span = to - from
+    for await (const block of decodeRange(track, from, to, signal)) {
+      accumulator.push(block.planes)
+      if (span > 0) onProgress(Math.min(1, block.offset / span))
+    }
+    throwIfAborted(signal)
+    onProgress(1)
+    return planKeptRanges(recipe, accumulator.result())
+  } finally {
+    input.dispose()
+  }
+}
+
+/**
+ * 書き出しと同じ処理（つなぎ合わせ・チャンネル合わせ・フェード）を掛けた信号の、区間内のピーク。
  * 音量は掛けない（掛ける倍率をこれから決めるため）。
  */
 async function measurePeak(
   file: File,
   recipe: AudioRecipe,
+  kept: readonly TimeRange[] | null,
+  outputLength: number,
   channels: number,
   signal: AbortSignal | undefined,
   onProgress: (progress: number) => void
@@ -173,22 +232,28 @@ async function measurePeak(
   try {
     const track = await primaryAudioTrack(input)
     const length = trimmedLength(recipe)
+    const splice = kept ? createTimedSplicer(kept, recipe.trim.start, SILENCE_CROSSFADE) : null
     let peak = 0
     for await (const block of decodeRange(track, recipe.trim.start, recipe.trim.end, signal)) {
-      const processed = processPlanes(
-        block.planes,
-        {
-          startTime: block.offset,
-          sampleRate: block.sampleRate,
-          length,
-          fadeIn: recipe.fadeIn,
-          fadeOut: recipe.fadeOut,
-          gain: 1,
-          channels,
-        },
-        false
-      )
-      peak = Math.max(peak, peakOf(processed))
+      const chunks = splice
+        ? splice(block.planes, block.offset, block.sampleRate)
+        : [{ planes: block.planes, time: block.offset }]
+      for (const chunk of chunks) {
+        const processed = processPlanes(
+          chunk.planes,
+          {
+            startTime: chunk.time,
+            sampleRate: block.sampleRate,
+            length: outputLength,
+            fadeIn: recipe.fadeIn,
+            fadeOut: recipe.fadeOut,
+            gain: 1,
+            channels,
+          },
+          false
+        )
+        peak = Math.max(peak, peakOf(processed))
+      }
       if (length > 0) onProgress(Math.min(1, block.offset / length))
     }
     throwIfAborted(signal)

@@ -1,8 +1,8 @@
 import type { AudioCodec } from 'mediabunny'
 import { AUDIO_FORMATS, AUDIO_FORMAT_LIST, changeAudioFormat, createAudioOutput } from '../../media/audio/output'
 import { dbToGain, fadeEnvelope, normalizeGain } from '../../media/audio/dsp'
-import { trimmedLength } from '../../media/audio/recipe'
-import type { AudioFormat, AudioOutput, AudioRecipe } from '../../media/audio/types'
+import { keptLength, outputTimeAt } from '../../media/audio/silence'
+import type { AudioFormat, AudioOutput, AudioRecipe, TimeRange } from '../../media/audio/types'
 
 /**
  * 音声の編集画面の純粋な計算。React にも Web Audio にも触れない。
@@ -102,25 +102,37 @@ export function peakInRange(peaks: Float32Array, duration: number, start: number
  * 試聴と波形の表示に掛ける一定の倍率（音量 × ノーマライズ）。
  * ノーマライズの倍率は波形のピークから見積もる。波形は全チャンネルを平均した値なので、
  * 左右で違う音では書き出しより少し大きめに持ち上がることがある（試聴なので割り切る）。
+ * @param kept 書き出しに残す範囲（無音カット）。省略すると区間全体
  */
 export function previewBaseGain(
   recipe: AudioRecipe,
   peaks: Float32Array | null,
-  duration: number
+  duration: number,
+  kept: readonly TimeRange[] = [recipe.trim]
 ): number {
   const effective = effectiveRecipe(recipe)
   let gain = dbToGain(effective.gainDb)
   if (effective.normalize && peaks) {
-    gain *= normalizeGain(peakInRange(peaks, duration, recipe.trim.start, recipe.trim.end))
+    let peak = 0
+    for (const range of kept) peak = Math.max(peak, peakInRange(peaks, duration, range.start, range.end))
+    gain *= normalizeGain(peak)
   }
   return gain
 }
 
-/** 元ファイルの時刻 time（秒）での試聴の倍率。区間の外は書き出されないので 0 */
-export function previewGainAt(recipe: AudioRecipe, time: number, baseGain: number): number {
-  const { start, end } = recipe.trim
-  if (!(time >= start && time <= end)) return 0
-  return baseGain * fadeEnvelope(time - start, trimmedLength(recipe), recipe.fadeIn, recipe.fadeOut)
+/**
+ * 元ファイルの時刻 time（秒）での試聴の倍率。区間の外と無音カットで削る範囲は書き出されないので 0。
+ * フェードは書き出しと同じく、削ったあとの時間軸の頭と尻に掛ける
+ * @param kept 書き出しに残す範囲（昇順）。省略すると区間全体
+ */
+export function previewGainAt(
+  recipe: AudioRecipe,
+  time: number,
+  baseGain: number,
+  kept: readonly TimeRange[] = [recipe.trim]
+): number {
+  if (!kept.some((range) => time >= range.start && time <= range.end)) return 0
+  return baseGain * fadeEnvelope(outputTimeAt(kept, time), keptLength(kept), recipe.fadeIn, recipe.fadeOut)
 }
 
 /**

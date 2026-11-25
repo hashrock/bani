@@ -12,15 +12,26 @@ import {
   AUDIO_FORMATS,
   AUDIO_FORMAT_LIST,
   NoAudioTrackError,
+  analyzeAudio,
   applyAudioEdit,
   canEncodeAudioFormat,
   createAudioOutput,
   createAudioRecipe,
-  loadWaveform,
+  planKeptRanges,
   probeAudio,
+  removedRanges,
   renderAudio,
 } from '../../media/audio'
-import type { AudioEdit, AudioFormat, AudioInfo, AudioOutput, AudioRecipe, AudioTrim } from '../../media/audio'
+import type {
+  AudioEdit,
+  AudioFormat,
+  AudioInfo,
+  AudioOutput,
+  AudioRecipe,
+  AudioTrim,
+  LevelEnvelope,
+  TimeRange,
+} from '../../media/audio'
 import { isAbortError } from '../../utils/abort'
 import type { EditPageProps } from '../types'
 import { AudioBottomBar } from './AudioBottomBar'
@@ -42,6 +53,7 @@ const WAVEFORM_BUCKETS = 4000
 
 /** 区間のないレシピの代わり（読み込み前）。試聴のフックに渡すだけで使わない */
 const EMPTY_TRIM: AudioTrim = { start: 0, end: 0 }
+const NO_RANGES: readonly TimeRange[] = []
 
 /** 音声 1 本を開き、切り出し・フェード・音量を決めて書き出す画面 */
 export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirtyChange }: EditPageProps) {
@@ -52,6 +64,8 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
   const [info, setInfo] = useState<AudioInfo | null>(null)
   const [probeError, setProbeError] = useState<string | null>(null)
   const [peaks, setPeaks] = useState<Float32Array | null>(null)
+  // 無音カットの検出に使う音量の包絡。波形と同じ 1 回のデコードで作る
+  const [levels, setLevels] = useState<LevelEnvelope | null>(null)
   const [waveformError, setWaveformError] = useState(false)
   const [supported, setSupported] = useState<Record<AudioFormat, boolean> | null>(null)
   const [renderProgress, setRenderProgress] = useState<number | null>(null)
@@ -81,8 +95,12 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
         if (cancelled) return
         setInfo(probed)
         replace(createAudioRecipe(probed))
-        return loadWaveform(file, WAVEFORM_BUCKETS, { signal: abort.signal })
-          .then((loaded) => !cancelled && setPeaks(loaded))
+        return analyzeAudio(file, WAVEFORM_BUCKETS, { signal: abort.signal })
+          .then((loaded) => {
+            if (cancelled) return
+            setPeaks(loaded.peaks)
+            setLevels(loaded.levels)
+          })
           .catch((err) => {
             if (cancelled || isAbortError(err)) return
             console.error('Failed to load waveform:', err)
@@ -156,13 +174,16 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
   )
 
   const duration = info?.duration ?? 0
+  // 書き出しに残す範囲。書き出し（renderAudio）も同じ窓の包絡から同じ計算で決める
+  const kept = useMemo(() => (recipe ? planKeptRanges(recipe, levels) : NO_RANGES), [recipe, levels])
+  const removed = useMemo(() => (recipe ? removedRanges(kept, recipe.trim) : NO_RANGES), [recipe, kept])
   const baseGain = useMemo(
-    () => (recipe ? previewBaseGain(recipe, peaks, duration) : 1),
-    [recipe, peaks, duration]
+    () => (recipe ? previewBaseGain(recipe, peaks, duration, kept) : 1),
+    [recipe, peaks, duration, kept]
   )
   const gainAt = useCallback(
-    (time: number) => (recipe ? previewGainAt(recipe, time, baseGain) : 1),
-    [recipe, baseGain]
+    (time: number) => (recipe ? previewGainAt(recipe, time, baseGain, kept) : 1),
+    [recipe, baseGain, kept]
   )
 
   const trim = recipe?.trim ?? EMPTY_TRIM
@@ -172,6 +193,7 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
     end: trim.end,
     gainAt,
     mono: !!recipe?.mono && (info?.channels ?? 1) > 1,
+    kept,
   })
 
   // Space で再生・一時停止（動画の画面と同じ）。ボタンやつまみの上ではそれ自身の操作に任せる
@@ -210,6 +232,8 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
         file={file}
         info={info}
         recipe={recipe}
+        kept={kept}
+        levels={levels ? 'ready' : waveformError ? 'error' : 'loading'}
         onEdit={onEdit}
         canUndo={history.canUndo}
         canRedo={history.canRedo}
@@ -248,6 +272,7 @@ export default function EditPage({ opened, isDragging, onFiles, onReopen, onDirt
                   duration={duration}
                   peaks={peaks}
                   trim={recipe.trim}
+                  removed={removed}
                   currentTime={playback.currentTime}
                   gainAt={gainAt}
                   loading={!peaks && !waveformError}

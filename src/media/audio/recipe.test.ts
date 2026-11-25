@@ -18,6 +18,13 @@ import {
   reachableRecipe,
   trimmableDuration,
 } from './testFixtures'
+import {
+  MAX_SILENCE_DURATION,
+  MAX_SILENCE_PADDING,
+  MAX_SILENCE_THRESHOLD_DB,
+  MIN_SILENCE_DURATION,
+  MIN_SILENCE_THRESHOLD_DB,
+} from './silence'
 import type { AudioRecipe } from './types'
 
 /** 区間の端とフェードの計算に足し引きが入るので、比較には桁落ち分の余裕を持たせる */
@@ -40,8 +47,46 @@ describe('applyAudioEdit', () => {
         expectFadesFit(recipe)
         expect(recipe.gainDb).toBeGreaterThanOrEqual(MIN_GAIN_DB)
         expect(recipe.gainDb).toBeLessThanOrEqual(MAX_GAIN_DB)
+        const { silence } = recipe
+        expect(silence.thresholdDb).toBeGreaterThanOrEqual(MIN_SILENCE_THRESHOLD_DB)
+        expect(silence.thresholdDb).toBeLessThanOrEqual(MAX_SILENCE_THRESHOLD_DB)
+        expect(silence.minDuration).toBeGreaterThanOrEqual(MIN_SILENCE_DURATION)
+        expect(silence.minDuration).toBeLessThanOrEqual(MAX_SILENCE_DURATION)
+        expect(silence.padding).toBeGreaterThanOrEqual(0)
+        expect(silence.padding).toBeLessThanOrEqual(MAX_SILENCE_PADDING)
       })
     )
+  })
+
+  test('無音カットの切り替えは設定値を変えず、ほかの編集にも触れない', () => {
+    fc.assert(
+      fc.property(trimmableDuration, audioEditSequence, fc.boolean(), (duration, edits, enabled) => {
+        const info = audioInfoWith(duration)
+        const before = reachableRecipe(info, edits)
+        const after = applyAudioEdit(before, { type: 'setSilence', silence: { enabled } }, info)
+        expect(after.silence).toEqual({ ...before.silence, enabled })
+        expect({ ...after, silence: null }).toEqual({ ...before, silence: null })
+        // 入れたら無加工ではない
+        if (enabled) expect(isIdentityRecipe(after, info)).toBe(false)
+      })
+    )
+  })
+
+  test('無音カットの値は範囲内ならそのまま、非有限なら無視される', () => {
+    const info = audioInfoWith(10)
+    const recipe = createAudioRecipe(info)
+    const set = (silence: Parameters<typeof applyAudioEdit>[1] & { type: 'setSilence' }) =>
+      applyAudioEdit(recipe, silence, info).silence
+    expect(set({ type: 'setSilence', silence: { thresholdDb: -50, minDuration: 1, padding: 0.2 } })).toMatchObject({
+      thresholdDb: -50,
+      minDuration: 1,
+      padding: 0.2,
+    })
+    expect(applyAudioEdit(recipe, { type: 'setSilence', silence: { thresholdDb: Number.NaN } }, info)).toBe(recipe)
+    expect(set({ type: 'setSilence', silence: { thresholdDb: 0, padding: -1 } })).toMatchObject({
+      thresholdDb: MAX_SILENCE_THRESHOLD_DB,
+      padding: 0,
+    })
   })
 
   test('尺が短すぎる・読めないファイルでも NaN を持ち込まず、区間とフェードは崩れない', () => {

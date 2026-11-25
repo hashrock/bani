@@ -171,6 +171,28 @@ describe('previewBaseGain / previewGainAt', () => {
     expect(previewGainAt(recipe, 9, 1)).toBe(0)
   })
 
+  test('無音カットで削る範囲は 0、フェードは削ったあとの時間軸に掛かる', () => {
+    const recipe = recipeWith({ trim: { start: 0, end: 10 }, fadeIn: 0, fadeOut: 2 })
+    const kept = [
+      { start: 0, end: 3 },
+      { start: 7, end: 10 },
+    ]
+    expect(previewGainAt(recipe, 5, 1, kept)).toBe(0)
+    // 書き出しの長さは 6 秒。尻の 2 秒（元の 8〜10 秒）でフェードアウトする
+    expect(previewGainAt(recipe, 2.5, 1, kept)).toBeCloseTo(1)
+    expect(previewGainAt(recipe, 9, 1, kept)).toBeCloseTo(0.5)
+  })
+
+  test('ノーマライズの倍率は残す範囲のピークから決める', () => {
+    const peaks = new Float32Array([0.25, 1, 0.5, 0.25])
+    const recipe = recipeWith({ normalize: true }, 4)
+    const kept = [
+      { start: 0, end: 1 },
+      { start: 2, end: 4 },
+    ]
+    expect(previewBaseGain(recipe, peaks, 4, kept)).toBeCloseTo(normalizeGain(0.5))
+  })
+
   test('倍率は 0 以上で、一定の倍率を超えない', () => {
     fc.assert(
       fc.property(
