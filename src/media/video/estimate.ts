@@ -1,5 +1,5 @@
 import { trimDuration } from '../../state/trim'
-import { DEFAULT_GIF_FPS, computeFrameDrawPlan } from './output'
+import { DEFAULT_GIF_FPS, computeFrameDrawPlan, targetSizeEstimate } from './output'
 import { renderVideo } from './render'
 import type { VideoInfo, VideoOutput, VideoRecipe } from './types'
 
@@ -30,6 +30,11 @@ export async function estimateVideoSize({
 
   if (output.format === 'gif') return estimateGifSize(recipe, output, info, duration)
 
+  // 目標サイズのビットレートが効くときは、エンコーダはその平均に寄せる。先頭 1 秒は最初のキーフレームと
+  // レート制御の立ち上がりで重く、引き伸ばすと大きく見積もりすぎるので、ビットレートから求める
+  const targeted = targetSizeEstimate(output, duration, !!info.audioCodec && !recipe.muted)
+  if (targeted !== null) return targeted
+
   // 先頭の一部だけを実際にエンコードし、その結果を区間全体へ引き伸ばす
   const sampleEnd = Math.min(start + SAMPLE_DURATION, end)
   const sampleDuration = sampleEnd - start
@@ -38,6 +43,8 @@ export async function estimateVideoSize({
   const { blob } = await renderVideo(file, recipe, output, {
     info,
     trim: { start, end: sampleEnd },
+    // 目標サイズのビットレートは試す 1 秒ではなく区間全体の長さで決める
+    duration,
     signal,
   })
   return Math.round((blob.size / sampleDuration) * duration)

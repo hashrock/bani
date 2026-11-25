@@ -6,6 +6,7 @@ import { solidOnClass } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 import { SidebarHead } from '../../components/BrandMark'
 import { CompatibilityList } from '../../components/CompatibilityList'
+import { PresetPicker } from '../../components/PresetPicker'
 import { SaveButton } from '../../components/SaveButton'
 import {
   Chip,
@@ -336,6 +337,7 @@ export function ImageSidebar({
         </Step>
 
         <Step index={3} title={t.stepOutput}>
+          <PresetPicker kind="image" scope="image" value={output} onChange={onOutputChange} />
           <ToggleGroup
             type="single"
             variant="outline"

@@ -7,6 +7,8 @@ import type { OpenedFile } from '../core/opened'
 import type { SaveState } from '../core/useSave'
 import { SaveButton } from './SaveButton'
 import { useI18n } from '../i18n/context'
+import { defineMessages, useLocalMessages } from '../i18n/local'
+import { usesTargetSize } from '../media/video'
 import type { VideoInfo, VideoOutput, VideoSize } from '../media/video'
 import { trimDuration } from '../state/trim'
 import type { PreviewEstimate, Trim } from '../types'
@@ -20,12 +22,23 @@ import {
   EstimateRow,
   Fact,
   Facts,
+  Notice,
   ResetSettingsButton,
   SidebarFooter,
   SmallButton,
   SourceName,
 } from './SidebarParts'
 import { Step, StepHint } from './Step'
+
+const messages = defineMessages({
+  ja: {
+    targetOver: (size: string) =>
+      `見込みでは ${size} を超えます。解像度を下げるか、トリムで短くしてください`,
+  },
+  en: {
+    targetOver: (size: string) => `Likely over ${size}. Lower the resolution or trim it shorter`,
+  },
+})
 
 interface SidebarProps {
   file: File | null
@@ -76,6 +89,7 @@ export function Sidebar({
   save,
 }: SidebarProps) {
   const { t, lang } = useI18n()
+  const m = useLocalMessages(messages)
   const [detailsOpen, setDetailsOpen] = useState(false)
 
   const dimensions = media?.dimensions ?? null
@@ -146,6 +160,8 @@ export function Sidebar({
           settings={output}
           onSettingsChange={onOutputChange}
           dimensions={editedSize}
+          duration={trimmedDuration}
+          presetScope="video"
         />
 
         <Step index={estimateIndex} title={t.stepEstimate}>
@@ -161,6 +177,14 @@ export function Sidebar({
               {trimmedDuration > 0 ? formatTimecode(trimmedDuration) : '—'}
             </EstimateRow>
           </EstimateBox>
+
+          {/* 目標サイズを狙ってもエンコーダが守りきれないことがあるので、見込みで超えていれば知らせる */}
+          {usesTargetSize(output) &&
+            !previewEstimate.isEstimating &&
+            output.targetSize !== undefined &&
+            previewEstimate.estimatedSize > output.targetSize && (
+              <Notice tone="warn">{m.targetOver(formatBytes(output.targetSize))}</Notice>
+            )}
 
           {previewEstimate.estimatedSize > 0 ? (
             <CompatibilityList
