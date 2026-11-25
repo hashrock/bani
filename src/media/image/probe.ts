@@ -1,7 +1,8 @@
-import { probeHeifFallback } from './decode'
+import { isSvgBlob, probeHeifFallback } from './decode'
 import { EMPTY_METADATA, orientationSwapsAxes, parseImageHeader, sniffImageMime } from './metadata'
 import type { ImageHeader, ImageMetadata } from './metadata'
 import type { ImageSize } from './recipe'
+import { sanitizeSvg } from './svg'
 
 export interface ImageInfo extends ImageSize {
   /** 見た目どおりの寸法（EXIF の向きを反映済み）。レシピの座標はこの寸法に対して取る */
@@ -35,9 +36,15 @@ export function imageInfoFromHeader(header: ImageHeader, fileSize: number): Imag
  * JPEG / PNG / WebP / GIF / BMP はヘッダを読むだけで、デコードはしない。
  * それ以外はブラウザにデコードさせて寸法だけを得る（付帯情報は不明になる）。
  * ブラウザが読めない HEIC / HEIF は libheif（WASM）を読み込んで寸法を得る。
+ * SVG は width / height / viewBox から寸法を決める（読めない SVG は SvgParseError）。
  * どれでも読めなければ例外を投げる。
  */
 export async function probeImage(file: Blob): Promise<ImageInfo> {
+  if (await isSvgBlob(file)) {
+    // SVG は書かれた大きさ（1 倍、整数に丸めたもの）を寸法にする。decodeImage が既定で描く大きさと同じ
+    const { size } = sanitizeSvg(await file.text())
+    return { ...size, mime: 'image/svg+xml', fileSize: file.size, metadata: EMPTY_METADATA, metadataKnown: false }
+  }
   const bytes = new Uint8Array(await file.arrayBuffer())
   const header = parseImageHeader(bytes)
   if (header) return imageInfoFromHeader(header, file.size)

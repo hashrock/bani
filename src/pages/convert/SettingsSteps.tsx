@@ -152,6 +152,9 @@ export function AudioSteps({
   )
 }
 
+/** 一括変換で SVG を描く倍率の候補 */
+const SVG_SCALES = [1, 2, 3, 4] as const
+
 const IMAGE_FORMAT_LABEL: Record<ImageFormat, string> = {
   png: 'PNG',
   jpeg: 'JPEG',
@@ -178,10 +181,13 @@ export function ImageSteps({
   startIndex,
   value,
   onChange,
+  hasSvg = false,
 }: {
   startIndex: number
   value: ImageBatchOutput
   onChange: (value: ImageBatchOutput) => void
+  /** 一覧に SVG があるか。あれば「大きさ」に SVG を描く倍率を出す */
+  hasSvg?: boolean
 }) {
   const { t } = useI18n()
   const m = useLocalMessages(convertMessages)
@@ -262,6 +268,18 @@ export function ImageSteps({
           />
         </div>
         <StepHint>{m.maxSizeHint}</StepHint>
+        {hasSvg && (
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] text-muted-foreground">{m.svgScaleLabel}</span>
+            <Choices
+              label={m.svgScaleLabel}
+              value={String(value.svgScale ?? 1)}
+              options={SVG_SCALES.map((scale) => ({ value: String(scale), label: `${scale}×` }))}
+              onChange={(scale) => onChange({ ...value, svgScale: Number(scale) })}
+            />
+            <StepHint>{m.svgScaleHint}</StepHint>
+          </div>
+        )}
       </Step>
     </>
   )

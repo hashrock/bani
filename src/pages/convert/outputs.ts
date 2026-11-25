@@ -18,6 +18,11 @@ export interface ImageBatchOutput {
   output: ImageOutput
   /** 長辺の上限（px）。null なら元の大きさ */
   maxSize: number | null
+  /**
+   * SVG を描く倍率（書かれた大きさに対して）。長辺の上限はこのあとにかかる。
+   * 前の版の設定にはないので、ないときは 1 倍
+   */
+  svgScale?: number
 }
 
 /** テキストの一括変換。文字コード・改行・BOM の付け替えだけを行う */
@@ -38,7 +43,7 @@ export interface ConvertSettings {
 export const DEFAULT_CONVERT_SETTINGS: ConvertSettings = {
   video: DEFAULT_VIDEO_OUTPUT,
   audio: createAudioOutput('mp3'),
-  image: { output: createImageOutput('webp'), maxSize: null },
+  image: { output: createImageOutput('webp'), maxSize: null, svgScale: 1 },
   text: { encoding: 'keep', newline: 'keep', bom: 'keep' },
 }
 

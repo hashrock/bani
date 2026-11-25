@@ -36,8 +36,13 @@ export async function renderEntry(
       return (await renderAudio(file, createAudioRecipe(info), settings.audio, options)).blob
     }
     case 'image':
-      return (await renderImage(file, imageBatchRecipe(settings.image), settings.image.output, options))
-        .blob
+      return (
+        await renderImage(file, imageBatchRecipe(settings.image), settings.image.output, {
+          ...options,
+          // SVG は書かれた大きさ × 倍率で描く（ほかの画像では使わない）
+          svg: { scale: settings.image.svgScale ?? 1 },
+        })
+      ).blob
     case 'text':
       return (
         await renderText(file, { ...DEFAULT_TEXT_RECIPE, ...settings.text }, options)

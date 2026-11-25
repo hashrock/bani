@@ -12,6 +12,7 @@
 import { throwIfAborted } from '../../utils/abort'
 import type { RenderOptions, RenderedFile } from '../types'
 import { decodeImage } from './decode'
+import type { DecodeOptions } from './decode'
 import { IMAGE_FORMATS, clampQuality, outputImageFilename, searchQualityForTarget } from './output'
 import type { ImageFormat, ImageOutput } from './output'
 import { MAX_DIMENSION, computeDrawPlan, fitRecipeToImage } from './recipe'
@@ -37,12 +38,12 @@ export async function renderImage(
   file: Blob,
   recipe: ImageRecipe,
   output: ImageOutput,
-  options: RenderOptions = {}
+  options: RenderOptions & DecodeOptions = {}
 ): Promise<RenderedImage> {
   const { signal, onProgress } = options
   throwIfAborted(signal)
-  // ブラウザが読めない HEIC は decodeImage が libheif に回す
-  const bitmap = await decodeImage(file, signal)
+  // ブラウザが読めない HEIC は decodeImage が libheif に回す。SVG は options.svg の大きさで描く
+  const bitmap = await decodeImage(file, signal, { svg: options.svg })
   try {
     throwIfAborted(signal)
     onProgress?.(0.2)

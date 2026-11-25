@@ -24,6 +24,8 @@ export const convertMessages = defineMessages({
     imageLosslessHint: 'PNG は可逆形式なので、画質は選べません。',
     imageTarget: (size: string) => `目標サイズ: ${size} 以下（収まる範囲でいちばん高い画質を探します）`,
     clearTarget: '目標サイズを外す',
+    svgScaleLabel: 'SVG の倍率',
+    svgScaleHint: 'SVG は書かれた大きさにこの倍率をかけて描きます。外部の画像やフォントは読み込みません。',
 
     // テキスト
     stepEncoding: '文字コード',
@@ -69,6 +71,8 @@ export const convertMessages = defineMessages({
     imageLosslessHint: 'PNG is lossless, so there is no quality to choose.',
     imageTarget: (size: string) => `Target size: ≤ ${size} (uses the highest quality that fits)`,
     clearTarget: 'Remove target size',
+    svgScaleLabel: 'SVG scale',
+    svgScaleHint: 'SVGs are drawn at their own size times this scale. External images and fonts are never loaded.',
 
     stepEncoding: 'Encoding',
     stepNewline: 'Line endings',

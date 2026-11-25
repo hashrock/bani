@@ -8,6 +8,9 @@
 import { createWorkerClient, type WorkerClient } from '../workerClient'
 import { HeifDecodeError, HeifUnavailableError } from './heif'
 import { sniffImageMime } from './metadata'
+import { isSvgFile, sniffSvg } from './svg'
+import { rasterizeSvg } from './svgRaster'
+import type { SvgRasterOptions } from './svg'
 
 const isHeif = (bytes: Uint8Array) => sniffImageMime(bytes) === 'image/heic'
 
@@ -63,12 +66,36 @@ async function head(file: Blob): Promise<Uint8Array> {
   return new Uint8Array(await file.slice(0, SNIFF_LENGTH).arrayBuffer())
 }
 
+/** SVG の先頭を見るのに足りる長さ（XML 宣言・コメント・DOCTYPE のあとに <svg が来る） */
+const SVG_SNIFF_LENGTH = 4096
+
+/**
+ * SVG か。名前・MIME で決まらなければ先頭を見る（MIME の空な貼り付けなど）。
+ * 文字で始まらないファイル（ふつうの画像）は 1 バイト目で外れるので、ほとんど読まない
+ */
+export async function isSvgBlob(file: Blob): Promise<boolean> {
+  if (isSvgFile({ name: file instanceof File ? file.name : '', type: file.type })) return true
+  if (file.type !== '' && !/xml|text/i.test(file.type)) return false
+  const head = new Uint8Array(await file.slice(0, SVG_SNIFF_LENGTH).arrayBuffer())
+  const first = head.find((byte) => byte !== 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d && byte !== 0xef && byte !== 0xbb && byte !== 0xbf)
+  return first === 0x3c && sniffSvg(new TextDecoder().decode(head))
+}
+
+/** SVG は描く大きさを選べる（ほかの画像では使わない） */
+export interface DecodeOptions {
+  svg?: SvgRasterOptions
+}
+
 /**
  * 見た目どおりの向きでデコードした ImageBitmap を返す。呼び出し側が close する。
  * ブラウザでも libheif でも読めなければ例外を投げる（部品を取れなかったときは HeifUnavailableError）。
  * signal で止めると、HEIC のデコード中なら Worker ごと止める。
+ * SVG は消毒してから描く（外部を読みに行かず、スクリプトも動かさない。svg.ts を参照）。
  */
-export async function decodeImage(file: Blob, signal?: AbortSignal): Promise<ImageBitmap> {
+export async function decodeImage(file: Blob, signal?: AbortSignal, options: DecodeOptions = {}): Promise<ImageBitmap> {
+  if (await isSvgBlob(file)) {
+    return (await rasterizeSvg(file, options.svg, signal)).bitmap
+  }
   try {
     return await createImageBitmap(file, { imageOrientation: 'from-image' })
   } catch (error) {
