@@ -5,6 +5,8 @@ import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { solidOnClass } from '@/lib/styles'
 import { cn } from '@/lib/utils'
+import { PresetPicker } from '../../components/PresetPicker'
+import { LinkButton } from '../../components/SidebarParts'
 import { Step, StepHint } from '../../components/Step'
 import { useI18n } from '../../i18n/context'
 import { useLocalMessages } from '../../i18n/local'
@@ -18,6 +20,7 @@ import { MAX_DIMENSION } from '../../media/image/recipe'
 import { detectEncodableFormats } from '../../media/image/render'
 import type { TextEncodingName } from '../../media/text/encoding'
 import type { BomSetting, NewlineSetting } from '../../media/text/recipe'
+import { formatBytes } from '../../utils/format'
 import { convertMessages } from './messages'
 import type { ImageBatchOutput, TextBatchOutput } from './outputs'
 import { clampMaxSize } from './outputs'
@@ -113,6 +116,7 @@ export function AudioSteps({
   return (
     <>
       <Step index={startIndex} title={t.stepFormat}>
+        <PresetPicker kind="audio" scope="convert.audio" value={output} onChange={onChange} />
         <Choices
           label={t.stepFormat}
           value={output.format}
@@ -194,6 +198,13 @@ export function ImageSteps({
   return (
     <>
       <Step index={startIndex} title={t.stepFormat}>
+        {/* プリセットは出力設定だけを持つので、長辺の上限（maxSize）はそのまま残す */}
+        <PresetPicker
+          kind="image"
+          scope="convert.image"
+          value={output}
+          onChange={(next) => onChange({ ...value, output: next })}
+        />
         <Choices
           label={t.stepFormat}
           value={output.format}
@@ -215,6 +226,15 @@ export function ImageSteps({
               }
               aria-label={t.qualityLabel}
             />
+            {/* 目標サイズはプリセットから入る。ここでは見せて外せるだけにする */}
+            {output.targetBytes !== null && (
+              <>
+                <StepHint>{m.imageTarget(formatBytes(output.targetBytes))}</StepHint>
+                <LinkButton onClick={() => onChange({ ...value, output: { ...output, targetBytes: null } })}>
+                  {m.clearTarget}
+                </LinkButton>
+              </>
+            )}
           </div>
         ) : (
           <StepHint>{m.imageLosslessHint}</StepHint>

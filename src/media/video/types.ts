@@ -70,4 +70,14 @@ export interface VideoOutput {
   height?: number
   /** GIF のフレームレート。未指定なら DEFAULT_GIF_FPS */
   fps?: number
+  /**
+   * 短い辺の上限（拡大はしない）。width / height がどちらもないときだけ効く。
+   * 寸法がわからないうちに当てたプリセット（一括変換など）が使い、書き出すときに寸法へ直す
+   */
+  maxShortSide?: number
+  /**
+   * 書き出しの上限バイト数（MP4 / WebM）。区間の長さから映像のビットレートを決め、quality のビットレートより
+   * 低ければそちらを使う。serviceLimits.json の maxSize をそのまま渡せる。GIF では使わない
+   */
+  targetSize?: number
 }

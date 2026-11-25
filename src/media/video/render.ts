@@ -10,6 +10,11 @@ export interface RenderVideoOptions extends RenderOptions {
   info?: VideoInfo | null
   /** レシピの区間の代わりに使う区間（見積もりで先頭だけを試すときなど） */
   trim?: Trim | null
+  /**
+   * 目標サイズ（output.targetSize）からビットレートを決めるときの長さ（秒）。
+   * 見積もりで先頭だけを試すときも、書き出す区間全体の長さを渡す。未指定なら書き出す区間の長さ
+   */
+  duration?: number
 }
 
 /**
@@ -23,7 +28,7 @@ export function renderVideo(
   output: VideoOutput,
   options: RenderVideoOptions = {}
 ): Promise<RenderedFile> {
-  const { info = null, trim: trimOverride, ...renderOptions } = options
+  const { info = null, trim: trimOverride, duration, ...renderOptions } = options
   const trim =
     trimOverride !== undefined
       ? trimOverride
@@ -32,5 +37,5 @@ export function renderVideo(
         : null
   return output.format === 'gif'
     ? encodeGif(file, recipe, output, trim, renderOptions)
-    : transcodeVideo(file, recipe, info, output, trim, renderOptions)
+    : transcodeVideo(file, recipe, info, output, trim, { ...renderOptions, duration })
 }

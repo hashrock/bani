@@ -22,6 +22,8 @@ export const convertMessages = defineMessages({
     maxSizeLabel: '長辺の上限（px）',
     maxSizeHint: '空欄なら元の大きさのまま。小さい画像は引き伸ばしません。',
     imageLosslessHint: 'PNG は可逆形式なので、画質は選べません。',
+    imageTarget: (size: string) => `目標サイズ: ${size} 以下（収まる範囲でいちばん高い画質を探します）`,
+    clearTarget: '目標サイズを外す',
 
     // テキスト
     stepEncoding: '文字コード',
@@ -65,6 +67,8 @@ export const convertMessages = defineMessages({
     maxSizeLabel: 'Max long edge (px)',
     maxSizeHint: 'Leave empty to keep the original size. Smaller images are never enlarged.',
     imageLosslessHint: 'PNG is lossless, so there is no quality to choose.',
+    imageTarget: (size: string) => `Target size: ≤ ${size} (uses the highest quality that fits)`,
+    clearTarget: 'Remove target size',
 
     stepEncoding: 'Encoding',
     stepNewline: 'Line endings',

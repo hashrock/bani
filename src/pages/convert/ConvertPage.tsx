@@ -156,6 +156,7 @@ export function ConvertPage({ incoming, isDragging }: ConvertPageProps) {
                     settings={video}
                     onSettingsChange={setVideo}
                     dimensions={null}
+                    presetScope="convert.video"
                   />
                 )}
                 {kind === 'audio' && (

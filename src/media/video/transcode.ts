@@ -13,8 +13,15 @@ import type { ConversionOptions, ConversionVideoOptions, VideoSample } from 'med
 import { throwIfAborted } from '../../utils/abort'
 import type { Trim } from '../../types'
 import type { RenderOptions, RenderedFile } from '../types'
-import { VIDEO_MIME_TYPES, videoBitrate, videoFilename } from './output'
-import { rotatedCrop } from './recipe'
+import {
+  TARGET_AUDIO_BITRATE,
+  VIDEO_MIME_TYPES,
+  resolveMaxShortSide,
+  usesTargetSize,
+  videoBitrate,
+  videoFilename,
+} from './output'
+import { editedSize, rotatedCrop } from './recipe'
 import type { VideoInfo, VideoOutput, VideoRecipe } from './types'
 
 /**
@@ -29,17 +36,42 @@ export async function transcodeVideo(
   info: Pick<VideoInfo, 'dimensions'> | null,
   output: VideoOutput,
   trim: Trim | null,
-  options: RenderOptions = {}
+  options: RenderOptions & { duration?: number } = {}
 ): Promise<RenderedFile> {
   const { signal, onProgress } = options
   throwIfAborted(signal)
   const format = output.format === 'webm' ? 'webm' : 'mp4'
+  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS })
+  const muted = !!recipe?.muted
+
+  // 短い辺の上限は寸法がわかってから幅・高さに直す。一括変換では info がないので映像トラックから読む
+  let sized = output
+  if (output.maxShortSide && !output.width && !output.height) {
+    const track = info?.dimensions ? null : await input.getPrimaryVideoTrack()
+    const dimensions =
+      info?.dimensions ??
+      (track ? { width: await track.getDisplayWidth(), height: await track.getDisplayHeight() } : null)
+    const edited = dimensions && recipe ? editedSize({ dimensions }, recipe) : dimensions
+    sized = edited ? resolveMaxShortSide(output, edited) : output
+  }
+
+  // 目標サイズは長さから決まるビットレートで狙う。音声も TARGET_AUDIO_BITRATE で作り直し、
+  // 元の音声をそのまま写して見積もりより大きくなるのを防ぐ
+  const targeted = usesTargetSize(output)
+  let bitrate = videoBitrate(output)
+  let hasAudio = false
+  if (targeted) {
+    const duration = options.duration ?? (trim ? trim.end - trim.start : await input.computeDuration())
+    hasAudio = !muted && (await input.getPrimaryAudioTrack()) !== null
+    bitrate = videoBitrate(output, duration, hasAudio)
+  }
 
   const video: ConversionVideoOptions = {
-    ...(output.width && { width: output.width }),
-    ...(output.height && { height: output.height }),
-    ...(output.width && output.height && { fit: 'contain' as const }),
-    quality: new Quality({ bitrate: videoBitrate(output) }),
+    ...(sized.width && { width: sized.width }),
+    ...(sized.height && { height: sized.height }),
+    ...(sized.width && sized.height && { fit: 'contain' as const }),
+    quality: new Quality({ bitrate }),
+    ...(targeted && { forceTranscode: true }),
   }
   if (recipe && recipe.rotation !== 0) {
     video.rotate = recipe.rotation
@@ -52,13 +84,15 @@ export async function transcodeVideo(
 
   const target = new BufferTarget()
   const conversionOptions: ConversionOptions = {
-    input: new Input({ source: new BlobSource(file), formats: ALL_FORMATS }),
+    input,
     output: new Output({
       target,
       format: format === 'webm' ? new WebMOutputFormat() : new Mp4OutputFormat(),
     }),
     video,
-    ...(recipe?.muted && { audio: { discard: true } }),
+    ...(muted
+      ? { audio: { discard: true } }
+      : hasAudio && { audio: { quality: new Quality({ bitrate: TARGET_AUDIO_BITRATE }), forceTranscode: true } }),
     ...(trim && { trim }),
     showWarnings: false,
   }
