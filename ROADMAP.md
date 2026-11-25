@@ -61,7 +61,7 @@
 | ショートカット | `src/core/useHotkey.ts` |
 | 画面を作り直しても残す設定 | `src/core/usePersistentState.ts` |
 | 画面ごとの文言 | `src/i18n/local.ts`（各画面のフォルダに `{ ja, en }` を置く） |
-| 画面の登録 | `src/pages/registry.ts`、各メディアの `src/pages/<kind>/EditPage.tsx` と `meta.ts` |
+| 画面の登録 | `src/pages/registry.ts`、各メディアの `src/pages/<kind>/EditPage.tsx` と `meta.ts`。一括変換で受け付ける種類は `src/pages/convert/kinds.ts` |
 
 ## ルート
 

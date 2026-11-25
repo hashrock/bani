@@ -10,10 +10,11 @@ export interface EditPageProps {
   onFiles: (files: OpenedFile[]) => void
 }
 
-/** 画面の対応状況。各メディアの `src/pages/<kind>/meta.ts` に置く */
+/**
+ * 単体編集の画面の対応状況。各メディアの `src/pages/<kind>/meta.ts` に置く。
+ * 一括変換で受け付ける種類は src/pages/convert/kinds.ts が持つ
+ */
 export interface PageMeta {
   /** 単体編集の画面があるか */
   edit: boolean
-  /** 一括変換（#/convert）で受け付けるか */
-  convert: boolean
 }

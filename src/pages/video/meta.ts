@@ -1,3 +1,3 @@
 import type { PageMeta } from '../types'
 
-export const meta: PageMeta = { edit: true, convert: true }
+export const meta: PageMeta = { edit: true }
