@@ -12,9 +12,6 @@ interface VideoPreviewProps {
   showAfter: boolean
   error: string
   isDragging: boolean
-  onDragOver: (e: React.DragEvent) => void
-  onDragLeave: (e: React.DragEvent) => void
-  onDrop: (e: React.DragEvent) => void
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -38,9 +35,6 @@ export function VideoPreview({
   showAfter,
   error,
   isDragging,
-  onDragOver,
-  onDragLeave,
-  onDrop,
 }: VideoPreviewProps) {
   const { t } = useI18n()
   const originalUrl = useMemo(() => URL.createObjectURL(file), [file])
@@ -56,12 +50,7 @@ export function VideoPreview({
   const isGifResult = result?.filename.endsWith('.gif') ?? false
 
   return (
-    <main
-      className={`preview-area ${isDragging ? 'dragging' : ''}`}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
+    <main className={`preview-area ${isDragging ? 'dragging' : ''}`}>
       <video
         ref={videoRef}
         src={originalUrl}

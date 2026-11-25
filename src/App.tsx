@@ -1,207 +1,132 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import './App.css'
-import { BatchStatus } from './components/BatchStatus'
-import { BottomBar } from './components/BottomBar'
-import { FileUpload } from './components/FileUpload'
-import { Sidebar } from './components/Sidebar'
-import { VideoPreview } from './components/VideoPreview'
-import { probeMedia } from './converters'
-import { useBatchConversion } from './hooks/useBatchConversion'
-import { useConversionJob } from './hooks/useConversionJob'
-import { useSizeEstimate } from './hooks/useSizeEstimate'
-import type { ConversionSettings, MediaInfo } from './types'
+import { detectKind, planIntake } from './app/intake'
+import type { Capabilities } from './app/intake'
+import { navigate, useRoute } from './app/router'
+import { useFileDrop } from './app/useFileDrop'
+import { useI18n } from './i18n/context'
+import { ConvertPage } from './pages/ConvertPage'
+import { HubPage } from './pages/HubPage'
+import { MessagePage } from './pages/MessagePage'
+import { VideoEditPage } from './pages/VideoEditPage'
+import type { ConversionSettings } from './types'
+import { DEFAULT_SETTINGS } from './types'
 
-const DEFAULT_SETTINGS: ConversionSettings = {
-  format: 'mp4',
-  quality: 80,
+/** いま実装済みの画面が受け付ける種類。ロードマップに沿って増やす */
+const CAPABILITIES: Capabilities = {
+  edit: ['video'],
+  convert: ['video'],
 }
 
-/** 変換結果がいまの設定で作られたものかを比べるための鍵 */
-function settingsKey(settings: ConversionSettings): string {
-  return [
-    settings.format,
-    settings.quality,
-    settings.width ?? '',
-    settings.height ?? '',
-    settings.fps ?? '',
-    settings.startTime ?? '',
-    settings.endTime ?? '',
-  ].join('|')
+/**
+ * 各画面に渡すファイル。画面は key で作り直すので、
+ * ファイルを選び直すたびに番号を進めて前の状態（変換結果など）を残さない。
+ */
+interface Opened {
+  editFile: File | null
+  editId: number
+  convertFiles: File[]
+  convertId: number
 }
 
 function App() {
-  const [file, setFile] = useState<File | null>(null)
-  const [media, setMedia] = useState<MediaInfo | null>(null)
-  const [settings, setSettings] = useState<ConversionSettings>(DEFAULT_SETTINGS)
-  const [isDragging, setIsDragging] = useState(false)
-  const [showAfter, setShowAfter] = useState(false)
-  const [convertedKey, setConvertedKey] = useState<string | null>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const { t } = useI18n()
+  const route = useRoute()
+  const [opened, setOpened] = useState<Opened>({
+    editFile: null,
+    editId: 0,
+    convertFiles: [],
+    convertId: 0,
+  })
+  // 出力設定は画面を行き来しても残す
+  const [editSettings, setEditSettings] = useState<ConversionSettings>(DEFAULT_SETTINGS)
+  const [convertSettings, setConvertSettings] = useState<ConversionSettings>(DEFAULT_SETTINGS)
+  const [notice, setNotice] = useState('')
 
-  const job = useConversionJob({ file, settings, media })
-  const batch = useBatchConversion(settings)
-  const previewEstimate = useSizeEstimate({ file, settings, media })
+  const openFiles = useCallback(
+    (files: File[]) => {
+      const plan = planIntake(files.map(detectKind), CAPABILITIES)
+      if (!plan) {
+        setNotice(t.unsupportedFiles)
+        return
+      }
+      const accepted = plan.accepted.map((index) => files[index])
+      setOpened((prev) =>
+        plan.route.name === 'edit'
+          ? { ...prev, editFile: accepted[0], editId: prev.editId + 1 }
+          : { ...prev, convertFiles: accepted, convertId: prev.convertId + 1 }
+      )
+      setNotice(plan.rejected.length > 0 ? t.skippedFiles(plan.rejected.length) : '')
+      navigate(plan.route)
+    },
+    [t]
+  )
 
-  // ファイル選択時に使う操作だけを取り出す（いずれも参照が安定している）
-  const { reset: resetJob } = job
-  const { clear: clearBatch, setFiles: setBatchFiles } = batch
+  // 通知は読めるだけの間だけ出して、画面を移ったあとまで残さない
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(''), 5000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
 
-  const converting = job.running || batch.running
-  // 変換したあとに設定を触ったか。再変換ボタンで示す
-  const stale = !!job.result && convertedKey !== settingsKey(settings)
+  const drop = useFileDrop(openFiles)
 
-  const handleConvert = async () => {
-    // 変換できたら結果側に切り替える（その後の手動切り替えは妨げない）
-    if (await job.convert()) {
-      setConvertedKey(settingsKey(settings))
-      setShowAfter(true)
+  const page = (() => {
+    switch (route.name) {
+      case 'hub':
+        return (
+          <HubPage
+            capabilities={CAPABILITIES}
+            isDragging={drop.isDragging}
+            onFiles={openFiles}
+          />
+        )
+      case 'edit':
+        if (route.kind === 'video') {
+          return (
+            <VideoEditPage
+              key={opened.editId}
+              file={opened.editFile}
+              settings={editSettings}
+              setSettings={setEditSettings}
+              isDragging={drop.isDragging}
+              onFiles={openFiles}
+            />
+          )
+        }
+        return (
+          <MessagePage
+            title={t.comingSoonTitle(t.kindLabel[route.kind])}
+            body={t.comingSoonBody}
+          />
+        )
+      case 'convert':
+        return (
+          <ConvertPage
+            key={opened.convertId}
+            files={opened.convertFiles}
+            settings={convertSettings}
+            onSettingsChange={setConvertSettings}
+            isDragging={drop.isDragging}
+            onFiles={openFiles}
+          />
+        )
+      case 'notFound':
+        return <MessagePage title={t.notFoundTitle} />
     }
-  }
-
-  const selectFile = useCallback(
-    async (selected: File) => {
-      setFile(selected)
-      setMedia(null)
-      setShowAfter(false)
-      setConvertedKey(null)
-      resetJob()
-      clearBatch()
-
-      try {
-        const info = await probeMedia(selected)
-        setMedia(info)
-        setSettings((prev) => ({ ...prev, startTime: 0, endTime: info.duration }))
-      } catch (err) {
-        console.error('Failed to get media information:', err)
-      }
-    },
-    [resetJob, clearBatch]
-  )
-
-  const selectFiles = useCallback(
-    (selected: File[]) => {
-      setFile(null)
-      setMedia(null)
-      setShowAfter(false)
-      setConvertedKey(null)
-      resetJob()
-      setBatchFiles(selected)
-    },
-    [resetJob, setBatchFiles]
-  )
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
-  }, [])
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(false)
-  }, [])
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault()
-      setIsDragging(false)
-
-      const dropped = Array.from(e.dataTransfer.files)
-      if (dropped.length === 1) {
-        await selectFile(dropped[0])
-      } else if (dropped.length > 1) {
-        selectFiles(dropped)
-      }
-    },
-    [selectFile, selectFiles]
-  )
-
-  const handleCancel = () => {
-    if (batch.running) batch.cancel()
-    else job.cancel()
-  }
-
-  // 尺に依存する切り出し区間は、いま開いているファイルに合わせて残す
-  const handleResetSettings = () =>
-    setSettings({ ...DEFAULT_SETTINGS, startTime: 0, endTime: media?.duration })
+  })()
 
   return (
-    <div className="app">
-      <Sidebar
-        file={file}
-        media={media}
-        batchFileCount={batch.files.length}
-        settings={settings}
-        onSettingsChange={setSettings}
-        onFileSelect={selectFile}
-        onFilesSelect={selectFiles}
-        onResetSettings={handleResetSettings}
-        previewEstimate={previewEstimate}
-        converting={converting}
-        progress={job.progress}
-        hasResult={!!job.result}
-        stale={stale}
-        onConvert={handleConvert}
-        onBatchConvert={batch.run}
-        onCancel={handleCancel}
-        onDownload={job.download}
-      />
-
-      <div className="workspace">
-        <div className="stage">
-          <FileUpload
-            file={file}
-            files={batch.files.map((item) => item.file)}
-            isDragging={isDragging}
-            onFileSelect={selectFile}
-            onFilesSelect={selectFiles}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          />
-
-          {file && (
-            <VideoPreview
-              file={file}
-              videoRef={videoRef}
-              result={job.result}
-              converting={job.running}
-              progress={job.progress}
-              showAfter={showAfter}
-              error={job.error}
-              isDragging={isDragging}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            />
-          )}
-
-          {batch.files.length > 0 && (
-            <div className="batch-area">
-              {batch.error && <div className="batch-error">{batch.error}</div>}
-              <BatchStatus files={batch.files} />
-            </div>
-          )}
+    <div className="shell" {...drop.handlers}>
+      {page}
+      {notice && (
+        <div className="notice" role="status">
+          <span>{notice}</span>
+          <button className="notice-close" onClick={() => setNotice('')} aria-label={t.dismiss}>
+            ×
+          </button>
         </div>
-
-        {file && (
-          <BottomBar
-            file={file}
-            videoRef={videoRef}
-            duration={media?.duration ?? 0}
-            settings={settings}
-            onSettingsChange={setSettings}
-            result={job.result}
-            showAfter={showAfter}
-            onToggleView={setShowAfter}
-            converting={job.running}
-            progress={job.progress}
-            stale={stale}
-            onConvert={handleConvert}
-            onCancel={handleCancel}
-            onDownload={job.download}
-          />
-        )}
-      </div>
+      )}
     </div>
   )
 }

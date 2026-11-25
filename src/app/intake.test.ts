@@ -1,0 +1,78 @@
+import fc from 'fast-check'
+import { describe, expect, it } from 'vitest'
+import { detectKind, planIntake } from './intake'
+import type { Capabilities } from './intake'
+import { MEDIA_KINDS } from './routes'
+import type { MediaKind } from './routes'
+
+const kindOrNull = fc.option(fc.constantFrom(...MEDIA_KINDS), { nil: null })
+const kindList = fc.subarray([...MEDIA_KINDS])
+const capabilities: fc.Arbitrary<Capabilities> = fc.record({ edit: kindList, convert: kindList })
+
+describe('detectKind', () => {
+  it('MIME を拡張子より優先する', () => {
+    expect(detectKind({ name: 'clip.pdf', type: 'video/mp4' })).toBe('video')
+  })
+
+  it('MIME が空なら拡張子で判定する（大文字も可）', () => {
+    expect(detectKind({ name: 'Song.MP3', type: '' })).toBe('audio')
+    expect(detectKind({ name: 'scan.pdf', type: '' })).toBe('pdf')
+    expect(detectKind({ name: 'subs.srt', type: '' })).toBe('text')
+  })
+
+  it('判定できなければ null', () => {
+    expect(detectKind({ name: 'archive.zip', type: 'application/zip' })).toBeNull()
+    expect(detectKind({ name: 'README', type: '' })).toBeNull()
+  })
+})
+
+describe('planIntake', () => {
+  it('すべてのファイルが受け付けか却下のどちらか一方に入る', () => {
+    fc.assert(
+      fc.property(fc.array(kindOrNull, { maxLength: 8 }), capabilities, (kinds, caps) => {
+        const plan = planIntake(kinds, caps)
+        if (!plan) return
+        const all = [...plan.accepted, ...plan.rejected].sort((a, b) => a - b)
+        expect(all).toEqual(kinds.map((_, index) => index))
+      })
+    )
+  })
+
+  it('受け付けたファイルは、移動先の画面が扱える種類だけ', () => {
+    fc.assert(
+      fc.property(fc.array(kindOrNull, { maxLength: 8 }), capabilities, (kinds, caps) => {
+        const plan = planIntake(kinds, caps)
+        if (!plan) return
+        const allowed: readonly MediaKind[] =
+          plan.route.name === 'edit' ? caps.edit : caps.convert
+        for (const index of plan.accepted) {
+          expect(allowed).toContain(kinds[index])
+        }
+      })
+    )
+  })
+
+  it('扱えるファイルが 1 つでもあれば、どこかの画面に渡る', () => {
+    fc.assert(
+      fc.property(fc.array(kindOrNull, { maxLength: 8 }), capabilities, (kinds, caps) => {
+        const usable = kinds.some(
+          (kind) =>
+            kind !== null &&
+            (caps.convert.includes(kind) || (kinds.length === 1 && caps.edit.includes(kind)))
+        )
+        expect(planIntake(kinds, caps) !== null).toBe(usable)
+      })
+    )
+  })
+
+  it('1 ファイルで編集できるなら単体編集、複数なら一括変換', () => {
+    const caps: Capabilities = { edit: ['video'], convert: ['video'] }
+    expect(planIntake(['video'], caps)?.route).toEqual({ name: 'edit', kind: 'video' })
+    expect(planIntake(['video', 'video'], caps)?.route).toEqual({ name: 'convert' })
+    expect(planIntake(['video', 'pdf'], caps)).toEqual({
+      route: { name: 'convert' },
+      accepted: [0],
+      rejected: [1],
+    })
+  })
+})
