@@ -11,6 +11,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mediabunny/flac-encoder": "1.52.3",
+    "@mediabunny/mp3-encoder": "1.52.3",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "encoding-japanese": "^2.5.0",
