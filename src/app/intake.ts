@@ -1,3 +1,4 @@
+import { isAnimatedImage, SNIFF_BYTES, sniffAnimatedFormat } from '../media/gif/detect'
 import type { MediaKind, Route } from './routes'
 
 /** ファイルの拡張子から種類を引く表。MIME が空のとき（OS や取り込み元による）に使う */
@@ -20,6 +21,7 @@ const EXTENSIONS: Record<string, MediaKind> = {
   jpg: 'image',
   jpeg: 'image',
   gif: 'image',
+  apng: 'image',
   webp: 'image',
   avif: 'image',
   heic: 'image',
@@ -113,6 +115,12 @@ export function detectKind(file: { name: string; type: string }): MediaKind | nu
   return EXTENSIONS[file.name.slice(dot + 1).toLowerCase()] ?? null
 }
 
+/**
+ * アニメーションを 1 枚の画像として扱うときの種類。GIF の画面がない・一括変換に混ざったときは
+ * 画像として受け付ける（一括変換では 1 枚目だけを変換する）
+ */
+export const stillKind = (kind: MediaKind): MediaKind => (kind === 'gif' ? 'image' : kind)
+
 /** いま実装済みの画面が受け付ける種類 */
 export interface Capabilities {
   edit: readonly MediaKind[]
@@ -138,15 +146,16 @@ export function planIntake(
 ): Intake | null {
   if (kinds.length === 1) {
     const kind = kinds[0]
-    if (kind && capabilities.edit.includes(kind)) {
-      return { route: { name: 'edit', kind }, accepted: [0], rejected: [] }
+    const editKind = kind && [kind, stillKind(kind)].find((k) => capabilities.edit.includes(k))
+    if (editKind) {
+      return { route: { name: 'edit', kind: editKind }, accepted: [0], rejected: [] }
     }
   }
 
   const accepted: number[] = []
   const rejected: number[] = []
   kinds.forEach((kind, index) => {
-    if (kind && capabilities.convert.includes(kind)) accepted.push(index)
+    if (kind && (capabilities.convert.includes(kind) || capabilities.convert.includes(stillKind(kind)))) accepted.push(index)
     else rejected.push(index)
   })
   if (accepted.length === 0) return null
@@ -164,9 +173,22 @@ export function refineKind(kind: MediaKind | null, name: string, head: Uint8Arra
   return head[0] === MPEG_TS_SYNC ? 'video' : 'text'
 }
 
-/** detectKind に、読まないと決められないもの（.ts）の判定を足す */
+/**
+ * 画像のうち、読んでフレームを数えてアニメーション（2 フレーム以上）なら 'gif' にする。
+ * GIF・PNG（APNG）・WebP だけを見る。1 枚だけの GIF は画像の画面のまま
+ */
+async function refineAnimation(file: File): Promise<MediaKind> {
+  const format = sniffAnimatedFormat(new Uint8Array(await file.slice(0, 16).arrayBuffer()))
+  if (!format) return 'image'
+  const limit = SNIFF_BYTES[format]
+  const head = new Uint8Array(await file.slice(0, limit).arrayBuffer())
+  return isAnimatedImage(head, file.size > limit) ? 'gif' : 'image'
+}
+
+/** detectKind に、読まないと決められないもの（.ts、アニメーションかどうか）の判定を足す */
 export async function detectKindAsync(file: File): Promise<MediaKind | null> {
   const kind = detectKind(file)
+  if (kind === 'image') return refineAnimation(file).catch(() => kind)
   if (!AMBIGUOUS_TS.test(file.name)) return kind
   const head = new Uint8Array(await file.slice(0, 1).arrayBuffer())
   return refineKind(kind, file.name, head)

@@ -1,10 +1,12 @@
 /** Bani が扱うメディアの種類。画面（ルート）もこの単位で分ける */
-export type MediaKind = 'video' | 'audio' | 'image' | 'pdf' | 'text' | 'archive'
+export type MediaKind = 'video' | 'audio' | 'image' | 'gif' | 'pdf' | 'text' | 'archive'
 
 export const MEDIA_KINDS: readonly MediaKind[] = [
   'video',
   'audio',
   'image',
+  // アニメーション GIF（と APNG・アニメーション WebP）。1 枚だけの GIF は画像として開く
+  'gif',
   'pdf',
   'text',
   'archive',
