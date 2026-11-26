@@ -172,9 +172,11 @@ src/
 - [x] リネーム: `package.json`、`index.html` の title、README、i18n の保存キー（旧キーも読む）
 - [x] Pages の base をリポジトリ名から自動で決める（改名しても設定変更不要）
 - [x] GitHub リポジトリ名の変更（`mediabunny-ui` → `bani`）
+- [ ] 独自ドメイン `bani.hashrock.info` に移す（GitHub Pages のまま。`public/CNAME` と base を `/` にするのは済み。残りは Cloudflare の DNS に CNAME `bani` → `hashrock.github.io`（プロキシなし）と、リポジトリの Pages 設定で Custom domain・Enforce HTTPS）
 - [x] 自前の hash router（`#/`、`#/edit/<kind>`、`#/convert`）
 - [x] アプリ全体でドロップを受け、種別と数から画面を振り分ける。対応外のファイルは通知
 - [x] 入口の画面（ドロップハブ）。対応状況をメディアごとに表示
+- [x] 入口の見直し: 幅を広げ、種類ごとのカードにアイコン（入口だけ種類ごとに色を付ける）・できることの説明・読み込み／書き出しの形式を出す。形式の一覧は `src/pages/hubMessages.ts` の `KIND_FORMATS` に手で持つので、対応する形式を増やしたらここも直す
 - [x] 既存の動画画面を単体編集（`#/edit/video`）と一括変換（`#/convert`）に分割
 - [x] PWA 化: Service Worker で全アセット（`gif.worker.js` 含む）を事前キャッシュ、manifest、インストール可能に（`pwa/`）
 - [x] 外部スクリプト（`index.html` のサービス切り替え `repos.hashrock.info`）は同梱しない。オフライン時は読み込めずに表示されないだけでよい（Service Worker もキャッシュしない）
