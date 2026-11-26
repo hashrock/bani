@@ -91,7 +91,7 @@ const ja = {
   // Hub
   hubTagline: 'メディアの変換と簡単な編集を、ブラウザの中だけで。',
   hubDrop: 'ファイルをここにドロップ',
-  hubDropHint: '1 つなら編集画面、複数なら一括変換へ進みます。ファイルはどこにも送信されません。',
+  hubDropHint: '1 つなら編集画面、複数なら一括変換へ進みます。',
   hubPick: 'ファイルを選択',
   hubEdit: '編集',
   hubConvert: '一括変換',
@@ -238,7 +238,7 @@ const en: Messages = {
 
   hubTagline: 'Convert and lightly edit media, entirely in your browser.',
   hubDrop: 'Drop files here',
-  hubDropHint: 'One file opens the editor; several go to batch conversion. Nothing is uploaded.',
+  hubDropHint: 'One file opens the editor; several go to batch conversion.',
   hubPick: 'Select files',
   hubEdit: 'Edit',
   hubConvert: 'Batch convert',
