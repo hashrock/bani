@@ -25,6 +25,20 @@ const KIND_ICONS: Record<MediaKind, LucideIcon> = {
   archive: FileArchive,
 }
 
+/**
+ * 種類ごとのアイコンの色。アプリは無彩色が基本だが、入口だけは一覧で目当ての種類を
+ * 色でも探せるよう色を付ける
+ */
+const KIND_TONES: Record<MediaKind, string> = {
+  video: 'bg-violet-500/12 text-violet-600 dark:text-violet-400',
+  audio: 'bg-sky-500/12 text-sky-600 dark:text-sky-400',
+  image: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400',
+  gif: 'bg-pink-500/12 text-pink-600 dark:text-pink-400',
+  pdf: 'bg-red-500/12 text-red-600 dark:text-red-400',
+  text: 'bg-amber-500/12 text-amber-600 dark:text-amber-400',
+  archive: 'bg-slate-500/12 text-slate-600 dark:text-slate-400',
+}
+
 function FormatChips({ formats }: { formats: readonly string[] }) {
   return (
     <ul className="flex flex-wrap gap-1">
@@ -107,7 +121,7 @@ export function HubPage({ capabilities, isDragging, onFiles, onResume }: HubPage
                   )}
                 >
                   <div className="flex items-start gap-3">
-                    <span className={'flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground'}>
+                    <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', KIND_TONES[kind])}>
                       <Icon className="size-[18px]" aria-hidden />
                     </span>
                     <div className="flex min-w-0 flex-col gap-0.5">
